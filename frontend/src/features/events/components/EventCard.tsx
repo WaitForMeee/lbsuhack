@@ -1,0 +1,5 @@
+import type { EventItem } from "../types";
+import "./EventCard.css";
+const fallback = "https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1200&q=80";
+export const formatDate = (value: string) => new Intl.DateTimeFormat("ru-BY", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+export function EventCard({ event, compact = false }: { event: EventItem; compact?: boolean }) { return <a className={`event-card ${compact ? "event-card--compact" : ""}`} href={`/events/${event.slug}`}><div className="event-card__image"><img src={event.image_url ?? fallback} alt="" loading="lazy" /><span>{event.format === "online" ? "Онлайн" : event.region}</span></div><div className="event-card__body"><div className="chip-row">{event.categories.slice(0,2).map(c=><span className="chip" key={c.id}>{c.name}</span>)}</div><h3>{event.title}</h3><p className="event-date">{formatDate(event.starts_at)}</p><p className="event-organizer">{event.organizer.name}</p></div></a> }

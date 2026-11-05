@@ -1,0 +1,7 @@
+.loading-state { display: flex; min-height: 120px; align-items: center; justify-content: center; gap: 12px; color: var(--muted); font-size: 14px; }
+.loading-state__dots { display: inline-flex; gap: 4px; }
+.loading-state__dots i { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; animation: loading-dot 900ms ease-in-out infinite; }
+.loading-state__dots i:nth-child(2) { animation-delay: 120ms; }
+.loading-state__dots i:nth-child(3) { animation-delay: 240ms; }
+@keyframes loading-dot { 0%, 60%, 100% { opacity: .35; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .loading-state__dots i { animation: none; opacity: .7; } }

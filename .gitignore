@@ -8,3 +8,27 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Local configuration and secrets
+.env
+.env.*
+backend/.env
+frontend/.env
+
+# Local project notebook
+PROJECT_CONTEXT.md
+
+# Frontend dependencies and builds
+node_modules/
+frontend/dist/
+
+# Test and tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local databases
+*.db
+*.sqlite3

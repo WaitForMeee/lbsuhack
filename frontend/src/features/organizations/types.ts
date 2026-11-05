@@ -1,0 +1,2 @@
+export interface PrestigeEntry { id: string; points: number; reason: string; created_at: string }
+export interface Organization { id: string; name: string; type: "institution" | "company" | "academy"; description: string; region: string; contact_email: string | null; website_url: string | null; directions: string; prestige_score: number; prestige_history: PrestigeEntry[]; published_event_count: number }
