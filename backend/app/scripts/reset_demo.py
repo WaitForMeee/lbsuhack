@@ -7,9 +7,11 @@ from sqlalchemy import delete, or_, select, update
 from app.db.session import SessionLocal
 from app.models import (
     Achievement,
+    ChildSuggestion,
     Event,
     EventRegistration,
     Notification,
+    ParentChild,
     ParentLink,
     PartnershipRequest,
     PartnershipResponse,
@@ -59,6 +61,23 @@ def reset_demo(db):
                     PartnershipRequest.sender_org_id.in_(org_ids),
                     PartnershipRequest.target_org_id.in_(org_ids),
                 )
+            )
+        )
+    )
+    db.execute(
+        delete(ChildSuggestion).where(
+            or_(
+                ChildSuggestion.parent_user_id.in_(user_ids),
+                ChildSuggestion.student_user_id.in_(user_ids),
+                ChildSuggestion.event_id.in_(event_ids),
+            )
+        )
+    )
+    db.execute(
+        delete(ParentChild).where(
+            or_(
+                ParentChild.parent_user_id.in_(user_ids),
+                ParentChild.student_user_id.in_(user_ids),
             )
         )
     )

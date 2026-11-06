@@ -111,9 +111,9 @@ def test_two_school_responses_and_visibility(client, auth):
         client.get(
             API + "/partnership-requests?view=marketplace", headers=auth("company")
         ).status_code
-        == 403
+        == 200
     )
-    assert client.post(path + "/responses", headers=auth("company")).status_code == 403
+    assert client.post(path + "/responses", headers=auth("company")).status_code == 404
 
 
 def test_invalid_partnership_directions(client, auth):

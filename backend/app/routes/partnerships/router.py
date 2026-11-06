@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter
 
-from app.routes.shared.dependencies import DB, Organizer, School
+from app.routes.shared.dependencies import DB, Organizer
 from app.schemas.partnerships.requests import PartnerDecision, PartnershipCreate
 from app.schemas.partnerships.responses import PartnershipOut, PartnershipResponseOut
 from app.schemas.shared.base import Items
@@ -45,7 +45,7 @@ def decide(identity: UUID, data: PartnerDecision, db: DB, user: Organizer):
     status_code=201,
     response_model=PartnershipResponseOut,
 )
-def response(identity: UUID, db: DB, user: School):
+def response(identity: UUID, db: DB, user: Organizer):
     return response_view(db, respond(db, identity, user))
 
 

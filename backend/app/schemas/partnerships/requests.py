@@ -15,7 +15,7 @@ class PartnerDecision(Input):
 
 
 class PartnershipCreate(Input):
-    visibility: Literal["direct", "all_schools"]
+    visibility: Literal["direct", "all_schools", "all_companies"]
     target_org_id: UUID | None = None
     title: Title
     description: str = Field(min_length=1, max_length=20000)

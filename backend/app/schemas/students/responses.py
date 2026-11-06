@@ -3,6 +3,7 @@ from uuid import UUID
 
 from app.schemas.achievements.responses import AchievementOut, AttendanceOut
 from app.schemas.organizations.responses import SchoolOut
+from app.schemas.registrations.responses import RegistrationOut
 from app.schemas.shared.base import Output
 
 
@@ -32,3 +33,6 @@ class StudentRow(Output):
     application_count: int
     attendance_count: int
     achievement_count: int
+    applications: list[RegistrationOut]
+    attendances: list[AttendanceOut]
+    achievements: list[AchievementOut]

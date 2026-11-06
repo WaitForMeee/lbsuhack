@@ -10,7 +10,10 @@ def response_view(db, r):
     return dict(
         id=r.id,
         request_id=r.request_id,
-        school=org_view(db, r.school_id),
+        school=org_view(db, r.responder_org_id)
+        if org_view(db, r.responder_org_id)["kind"] == "school"
+        else None,
+        organization=org_view(db, r.responder_org_id),
         status=r.status,
         created_at=r.created_at,
         decided_at=r.decided_at,
@@ -25,7 +28,7 @@ def partnership_view(db, p, user):
             .order_by(PartnershipResponse.created_at, PartnershipResponse.id)
         )
     )
-    mine = next((r for r in rows if r.school_id == user.organization_id), None)
+    mine = next((r for r in rows if r.responder_org_id == user.organization_id), None)
     visible = (
         rows
         if user.role == "moderator" or p.sender_org_id == user.organization_id

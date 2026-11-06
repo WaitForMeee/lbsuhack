@@ -30,17 +30,16 @@ def requests_for(db, user, view="mine"):
         )
     )
     if view == "marketplace":
-        if user.role != "school":
-            fail(403, "forbidden", "Рынок предложений доступен школам")
+        visibility = "all_schools" if user.role == "school" else "all_companies"
         return [
             p
             for p in rows
-            if p.visibility == "all_schools" and p.moderation_status == "approved"
+            if p.visibility == visibility and p.moderation_status == "approved"
         ]
     response_ids = set(
         db.scalars(
             select(PartnershipResponse.request_id).where(
-                PartnershipResponse.school_id == user.organization_id
+                PartnershipResponse.responder_org_id == user.organization_id
             )
         )
     )
@@ -55,8 +54,10 @@ def requests_for(db, user, view="mine"):
 
 def create_request(db, user, data):
     target = db.get(Organization, data.target_org_id) if data.target_org_id else None
-    if data.visibility == "all_schools":
-        valid = user.role == "company"
+    if data.visibility in ("all_schools", "all_companies"):
+        valid = (data.visibility == "all_schools" and user.role == "company") or (
+            data.visibility == "all_companies" and user.role == "school"
+        )
     else:
         valid = target and (
             (user.role == "school" and target.kind in ("company", "academy"))
@@ -89,16 +90,19 @@ def direct_decision(db, identity, user, decision):
 
 def respond(db, identity, user):
     p = get(db, PartnershipRequest, identity, lock=True)
-    if p.visibility != "all_schools" or p.moderation_status != "approved":
+    expected = "all_schools" if user.role == "school" else "all_companies"
+    if p.visibility != expected or p.moderation_status != "approved":
         fail(404, "not_found", "Предложение не найдено")
     row = db.scalar(
         select(PartnershipResponse).where(
             PartnershipResponse.request_id == p.id,
-            PartnershipResponse.school_id == user.organization_id,
+            PartnershipResponse.responder_org_id == user.organization_id,
         )
     )
     if row is None:
-        row = PartnershipResponse(request_id=p.id, school_id=user.organization_id)
+        row = PartnershipResponse(
+            request_id=p.id, responder_org_id=user.organization_id
+        )
         db.add(row)
         db.commit()
     return row

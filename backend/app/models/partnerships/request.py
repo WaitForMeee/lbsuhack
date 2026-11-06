@@ -15,14 +15,14 @@ from app.models.shared.mixins import Created, Identity, Reviewed, choices
 class PartnershipRequest(Identity, Created, Reviewed, Base):
     __tablename__ = "partnership_requests"
     __table_args__ = (
-        choices("visibility", "direct all_schools"),
+        choices("visibility", "direct all_schools all_companies"),
         choices("moderation_status", "pending approved rejected"),
         CheckConstraint(
             "direct_decision IS NULL OR direct_decision IN ('accepted','declined')",
             name="ck_direct_decision",
         ),
         CheckConstraint(
-            "(visibility = 'direct' AND target_org_id IS NOT NULL) OR (visibility = 'all_schools' AND target_org_id IS NULL)",
+            "(visibility = 'direct' AND target_org_id IS NOT NULL) OR (visibility IN ('all_schools','all_companies') AND target_org_id IS NULL)",
             name="ck_target",
         ),
         CheckConstraint(

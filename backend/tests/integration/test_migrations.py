@@ -73,3 +73,51 @@ def test_model_and_migrated_constraints_match():
     with engine.connect() as conn:
         changes = compare_metadata(MigrationContext.configure(conn), Base.metadata)
         assert changes == []
+
+
+def test_upgrade_preserves_parent_link_and_existing_partnership_response(tmp_path):
+    from app.scripts.seed_demo import demo_id
+
+    path = tmp_path / "upgrade.db"
+    result = alembic(path, "upgrade", "20261106_0001")
+    assert result.returncode == 0, result.stderr
+    seed = subprocess.run(
+        [sys.executable, "-m", "app.scripts.seed_demo"],
+        cwd=ROOT,
+        env={**os.environ, "DATABASE_URL": f"sqlite+pysqlite:///{path}"},
+        capture_output=True,
+        text=True,
+    )
+    assert seed.returncode == 0, seed.stderr
+    db = create_engine(f"sqlite+pysqlite:///{path}")
+
+    def id(key):
+        return demo_id(key).hex
+
+    with db.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO parent_links (parent_user_id,student_user_id,linked_at) VALUES (:parent,:student,CURRENT_TIMESTAMP)"
+            ),
+            {"parent": id("user:olga"), "student": id("user:alina")},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO partnership_responses (id,request_id,school_id,status,created_at) VALUES (:id,:request,:school,'accepted',CURRENT_TIMESTAMP)"
+            ),
+            {
+                "id": id("response:existing"),
+                "request": id("partnership:market"),
+                "school": id("org:school"),
+            },
+        )
+    result = alembic(path, "upgrade", "head")
+    assert result.returncode == 0, result.stderr
+    with db.connect() as connection:
+        assert connection.scalar(text("SELECT COUNT(*) FROM parent_children")) == 1
+        assert connection.scalar(
+            text("SELECT responder_org_id FROM partnership_responses")
+        ) == id("org:school")
+        assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+    assert alembic(path, "check").returncode == 0
+    db.dispose()

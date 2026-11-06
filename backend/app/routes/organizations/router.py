@@ -17,7 +17,7 @@ from app.services.achievements.views import success_view
 from app.services.events.views import event_view
 from app.services.organizations.views import org_view
 from app.services.partnerships.service import requests_for
-from app.services.registrations.views import registrations
+from app.services.registrations.views import registration_view, registrations
 from app.services.shared.text import normalize
 from app.services.users.views import user_view
 
@@ -49,6 +49,11 @@ def students(db: DB, user: School, q: str = ""):
                 application_count=len(registrations(db, u.id)),
                 attendance_count=len(success["attendances"]),
                 achievement_count=len(success["achievements"]),
+                applications=[
+                    registration_view(db, r) for r in registrations(db, u.id)
+                ],
+                attendances=success["attendances"],
+                achievements=success["achievements"],
             )
         )
     return dict(items=rows)
@@ -83,7 +88,8 @@ def dashboard(db: DB, user: Organizer):
     public_ids = {
         p.id
         for p in partnerships
-        if p.sender_org_id == user.organization_id and p.visibility == "all_schools"
+        if p.sender_org_id == user.organization_id
+        and p.visibility in ("all_schools", "all_companies")
     }
     responses = (
         list(

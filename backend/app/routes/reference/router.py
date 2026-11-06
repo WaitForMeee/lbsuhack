@@ -5,9 +5,11 @@ from sqlalchemy import select
 
 from app.models import Interest, Organization
 from app.routes.shared.dependencies import DB
+from app.schemas.organizations.directory import SchoolDirectoryOut
 from app.schemas.organizations.responses import OrganizationOut
 from app.schemas.reference.responses import ReferenceOut
 from app.schemas.shared.base import Items
+from app.services.organizations.directory import school_directory
 from app.services.shared.text import normalize
 
 router = APIRouter(tags=["reference"])
@@ -47,3 +49,8 @@ def organizations(
             and normalize(q) in normalize(o.name + " " + o.city)
         ]
     )
+
+
+@router.get("/schools", response_model=Items[SchoolDirectoryOut])
+def schools(db: DB, q: str = ""):
+    return dict(items=school_directory(db, q))
