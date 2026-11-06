@@ -1,71 +1,90 @@
-from pathlib import Path
-
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException
 
 from app.core.config import get_settings
-from app.routes.auth.router import router as auth_router
-from app.routes.categories.router import router as categories_router
-from app.routes.events.router import router as events_router
-from app.routes.organizations.router import router as organizations_router
-from app.routes.partnerships.router import router as partnerships_router
-from app.routes.profiles.router import router as profiles_router
-from app.routes.registrations.router import router as registrations_router
+from app.routes import (
+    auth,
+    events,
+    moderation,
+    notifications,
+    organizations,
+    parents,
+    partnerships,
+    reference,
+    registrations,
+    students,
+)
+from app.schemas.shared.errors import ErrorOut
 
 
-def create_app() -> FastAPI:
+def create_app():
     settings = get_settings()
-    app = FastAPI(title=settings.app_name)
+    app = FastAPI(
+        title=settings.app_name,
+        version="2.0.0",
+        description="TalentHub API for an independently deployed frontend. Bearer sessions expire in eight hours.",
+        responses={code: {"model": ErrorOut} for code in (401, 403, 404, 409, 422)},
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-        allow_headers=["Content-Type"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
     )
 
-    @app.middleware("http")
-    async def check_trusted_origin(request: Request, call_next):  # type: ignore[no-untyped-def]
-        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-            origin = request.headers.get("origin")
-            if origin is not None and origin.rstrip("/") not in settings.allowed_origins:
-                return JSONResponse(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    content={"detail": "Недоверенный источник запроса"},
-                )
-        return await call_next(request)
+    @app.exception_handler(HTTPException)
+    async def http_error(request: Request, exc: HTTPException):
+        detail = (
+            exc.detail
+            if isinstance(exc.detail, dict)
+            else dict(
+                code={
+                    401: "authentication_required",
+                    403: "forbidden",
+                    404: "not_found",
+                }.get(exc.status_code, "http_error"),
+                message=str(exc.detail),
+            )
+        )
+        headers = dict(exc.headers or {})
+        if exc.status_code == 401:
+            headers["WWW-Authenticate"] = "Bearer"
+        return JSONResponse(
+            status_code=exc.status_code, content={"error": detail}, headers=headers
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, exc: RequestValidationError):
+        message = "; ".join(
+            ".".join(str(p) for p in e["loc"]) + ": " + e["msg"] for e in exc.errors()
+        )
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "validation_error", "message": message}},
+        )
 
     @app.get("/health", tags=["system"])
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    app.include_router(auth_router, prefix=settings.api_prefix)
-    app.include_router(categories_router, prefix=settings.api_prefix)
-    app.include_router(profiles_router, prefix=settings.api_prefix)
-    app.include_router(events_router, prefix=settings.api_prefix)
-    app.include_router(registrations_router, prefix=settings.api_prefix)
-    app.include_router(organizations_router, prefix=settings.api_prefix)
-    app.include_router(partnerships_router, prefix=settings.api_prefix)
-    configure_frontend(app, settings.frontend_dist_path)
+    for module in (
+        auth,
+        reference,
+        students,
+        parents,
+        organizations,
+        events,
+        registrations,
+        notifications,
+        partnerships,
+        moderation,
+    ):
+        app.include_router(module.router, prefix=settings.api_prefix)
     return app
-
-
-def configure_frontend(app: FastAPI, configured_path: Path) -> None:
-    backend_root = Path(__file__).resolve().parents[1]
-    dist_path = configured_path if configured_path.is_absolute() else (backend_root / configured_path).resolve()
-    index_file = dist_path / "index.html"
-    assets_path = dist_path / "assets"
-
-    if assets_path.is_dir():
-        app.mount("/assets", StaticFiles(directory=assets_path), name="frontend-assets")
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    def frontend_fallback(full_path: str) -> FileResponse:
-        if full_path.startswith("api/") or "." in Path(full_path).name or not index_file.is_file():
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-        return FileResponse(index_file)
 
 
 app = create_app()

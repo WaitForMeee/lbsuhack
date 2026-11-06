@@ -12,6 +12,7 @@ wheels/
 # Local configuration and secrets
 .env
 .env.*
+!.env.example
 backend/.env
 frontend/.env
 
@@ -32,3 +33,7 @@ htmlcov/
 # Local databases
 *.db
 *.sqlite3
+
+# Read-only local UI reference; never built or deployed
+/frontend-prototype/
+.DS_Store

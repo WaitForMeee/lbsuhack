@@ -1,38 +1,32 @@
-import enum
-import uuid
-from datetime import UTC, datetime
+from datetime import datetime
+from uuid import UUID
 
-from sqlalchemy import DateTime, Enum, ForeignKey, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.models.shared.mixins import Created, Identity, choices, now
 
 
-class RegistrationStatus(str, enum.Enum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    CANCELLED = "cancelled"
-    ATTENDED = "attended"
-
-
-class EventRegistration(Base):
+class EventRegistration(Identity, Created, Base):
     __tablename__ = "event_registrations"
-    __table_args__ = (UniqueConstraint("event_id", "student_id", name="uq_event_student_registration"),)
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
-    student_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    status: Mapped[RegistrationStatus] = mapped_column(
-        Enum(RegistrationStatus, name="registration_status", native_enum=False), index=True
+    __table_args__ = (
+        UniqueConstraint("event_id", "student_user_id", name="uq_event_student"),
+        choices(
+            "status", "submitted under_review waitlisted approved rejected cancelled"
+        ),
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    event_id: Mapped[UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    student_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("student_profiles.user_id"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="submitted")
+    attended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
-    )
-
-    event: Mapped["Event"] = relationship(back_populates="registrations")  # noqa: F821
-    student: Mapped["User"] = relationship()  # noqa: F821
-    achievement: Mapped["Achievement | None"] = relationship(  # noqa: F821
-        back_populates="registration", cascade="all, delete-orphan", uselist=False
+        DateTime(timezone=True), default=now, onupdate=now
     )

@@ -1,6 +1,0 @@
-.status-page { display: grid; grid-template-rows: auto 1fr; min-height: 100svh; padding: 26px max(20px, calc((100vw - 1180px) / 2)); background: var(--surface); }
-.status-card { align-self: center; justify-self: center; width: min(100%, 460px); padding: 30px; text-align: center; background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 20px; }
-.status-card__signal { display: block; width: 8px; height: 8px; margin: 0 auto 18px; background: var(--accent); border-radius: 50%; }
-.status-card h1 { margin: 0 0 10px; font-family: var(--heading); font-size: 26px; }
-.status-card p { margin: 0; color: var(--muted); line-height: 1.55; }
-.status-card__action { margin-top: 20px; min-height: 42px; padding: 0 18px; color: white; background: var(--accent); border: 0; border-radius: 999px; font-weight: 700; cursor: pointer; }

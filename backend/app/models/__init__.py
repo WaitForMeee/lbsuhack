@@ -1,28 +1,28 @@
 from app.models.achievements.achievement import Achievement
-from app.models.categories.category import Category
-from app.models.events.event import Event, EventFormat, EventStatus
-from app.models.organizations.organization import Organization, OrganizationType
-from app.models.partnerships.partnership import Partnership, PartnershipOpportunity, PartnershipResponse
-from app.models.prestige.prestige import PrestigeEntry
-from app.models.profiles.student_profile import StudentProfile
-from app.models.registrations.registration import EventRegistration, RegistrationStatus
-from app.models.users.user import User, UserRole
+from app.models.events.event import Event
+from app.models.interests.associations import event_interests, student_interests
+from app.models.interests.interest import Interest
+from app.models.notifications.notification import Notification
+from app.models.organizations.organization import Organization
+from app.models.parents.link import ParentLink
+from app.models.partnerships.request import PartnershipRequest
+from app.models.partnerships.response import PartnershipResponse
+from app.models.registrations.registration import EventRegistration
+from app.models.students.profile import StudentProfile
+from app.models.users.user import User
 
 __all__ = [
     "Achievement",
-    "Category",
     "Event",
-    "EventFormat",
     "EventRegistration",
-    "EventStatus",
+    "Interest",
+    "Notification",
     "Organization",
-    "OrganizationType",
-    "Partnership",
-    "PartnershipOpportunity",
+    "ParentLink",
+    "PartnershipRequest",
     "PartnershipResponse",
-    "PrestigeEntry",
-    "RegistrationStatus",
     "StudentProfile",
     "User",
-    "UserRole",
+    "event_interests",
+    "student_interests",
 ]

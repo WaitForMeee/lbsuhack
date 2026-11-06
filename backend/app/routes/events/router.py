@@ -1,98 +1,187 @@
-from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, joinedload, selectinload
+from fastapi import APIRouter, Query
+from sqlalchemy import select
 
-from app.db.session import get_db_session
-from app.models.events.event import Event, EventFormat, EventStatus
-from app.models.users.user import User
-from app.routes.auth.dependencies import OptionalCurrentUser, OrganizationUser, StudentUser
-from app.schemas.events.event import EventCreate, EventList, EventRead, EventUpdate
-from app.services.events.event import event_to_read, events_to_read, load_categories, make_event_slug
+from app.core.errors import fail
+from app.models import Event, EventRegistration, StudentProfile
+from app.routes.shared.dependencies import DB, OptionalUser, Organizer, Student
+from app.schemas.events.requests import EventCreate
+from app.schemas.events.responses import EventOut
+from app.schemas.shared.base import Items
+from app.schemas.shared.types import Kind
+from app.services.events.service import transition
+from app.services.events.views import event_view
+from app.services.interests.service import resolve_interests
+from app.services.shared.repository import get
+from app.services.shared.text import normalize
+from app.services.shared.time import today
 
 router = APIRouter(tags=["events"])
 
 
-def event_query():
-    return select(Event).options(joinedload(Event.organizer), selectinload(Event.categories))
+@router.get("/events", response_model=Items[EventOut])
+def catalog(
+    db: DB,
+    user: OptionalUser,
+    q: str = "",
+    kind: Kind | None = None,
+    interest: Annotated[list[str] | None, Query()] = None,
+    upcoming: bool = False,
+    application_status: Literal[
+        "none",
+        "submitted",
+        "under_review",
+        "waitlisted",
+        "approved",
+        "rejected",
+        "cancelled",
+    ]
+    | None = None,
+):
+    if application_status and (user is None or user.role != "student"):
+        fail(
+            401 if user is None else 403,
+            "personal_filter_unavailable",
+            "Фильтр заявок доступен ученику",
+        )
+    events = list(
+        db.scalars(
+            select(Event)
+            .where(Event.status == "published")
+            .order_by(Event.event_date, Event.id)
+        )
+    )
+    statuses = (
+        {
+            r.event_id: r.status
+            for r in db.scalars(
+                select(EventRegistration).where(
+                    EventRegistration.student_user_id == user.id
+                )
+            )
+        }
+        if user and user.role == "student"
+        else {}
+    )
+    wanted = {normalize(i) for i in interest or []}
+    result = []
+    for e in events:
+        if kind and e.kind != kind or upcoming and e.event_date < today():
+            continue
+        if wanted and not wanted.intersection(i.normalized_name for i in e.interests):
+            continue
+        if (
+            application_status == "none"
+            and e.id in statuses
+            or application_status
+            and application_status != "none"
+            and statuses.get(e.id) != application_status
+        ):
+            continue
+        card = event_view(db, e, user)
+        search = " ".join(
+            [
+                e.title,
+                e.description,
+                card["organizer"]["name"],
+                e.city,
+                e.venue,
+                e.terms,
+                e.project_kind or "",
+                *(i.name for i in e.interests),
+            ]
+        )
+        if q and normalize(q) not in normalize(search):
+            continue
+        result.append(card)
+    return dict(items=result)
 
 
-@router.get("/events", response_model=EventList)
-def list_events(session: Annotated[Session, Depends(get_db_session)], user: OptionalCurrentUser, search: str | None = None, category: str | None = None, format: EventFormat | None = None, region: str | None = None, organizer_id: UUID | None = None, mine: bool = False, include_past: bool = False) -> EventList:
-    query = event_query()
-    if mine:
-        if user is None or user.organization_id is None: raise HTTPException(403, "Доступно только представителю организации")
-        query = query.where(Event.organizer_id == user.organization_id)
-    else:
-        query = query.where(Event.status == EventStatus.PUBLISHED)
-    if not include_past: query = query.where(Event.ends_at >= datetime.now(UTC))
-    if search:
-        pattern = f"%{search.strip()}%"; query = query.where(or_(Event.title.ilike(pattern), Event.summary.ilike(pattern), Event.description.ilike(pattern)))
-    if category: query = query.where(Event.categories.any(slug=category))
-    if format: query = query.where(Event.format == format)
-    if region: query = query.where(Event.region == region)
-    if organizer_id: query = query.where(Event.organizer_id == organizer_id)
-    events = list(session.scalars(query.order_by(Event.starts_at)).unique().all())
-    return EventList(items=events_to_read(session, events, user.id if user else None), total=len(events))
+@router.get("/recommendations", response_model=Items[EventOut])
+def recommendations(
+    db: DB, user: Student, interest: Annotated[list[str] | None, Query()] = None
+):
+    wanted = (
+        {normalize(i) for i in interest}
+        if interest is not None
+        else {i.normalized_name for i in db.get(StudentProfile, user.id).interests}
+    )
+    if not wanted:
+        return dict(items=[])
+    statuses = {
+        r.event_id: r.status
+        for r in db.scalars(
+            select(EventRegistration).where(
+                EventRegistration.student_user_id == user.id
+            )
+        )
+    }
+    events = db.scalars(
+        select(Event)
+        .where(
+            Event.status == "published",
+            Event.registration_deadline >= today(),
+            Event.event_date >= today(),
+        )
+        .order_by(Event.event_date, Event.id)
+    )
+    return dict(
+        items=[
+            event_view(db, e, user)
+            for e in events
+            if statuses.get(e.id) in (None, "cancelled")
+            and wanted.intersection(i.normalized_name for i in e.interests)
+        ][:3]
+    )
 
 
-@router.get("/events/{identifier}", response_model=EventRead)
-def get_event(identifier: str, session: Annotated[Session, Depends(get_db_session)], user: OptionalCurrentUser) -> EventRead:
-    try:
-        event_id = UUID(identifier)
-    except ValueError:
-        event_id = None
-    event = session.scalar(event_query().where(Event.id == event_id if event_id else Event.slug == identifier))
-    if event is None: raise HTTPException(404, "Событие не найдено")
-    if event.status != EventStatus.PUBLISHED and (user is None or user.organization_id != event.organizer_id): raise HTTPException(404, "Событие не найдено")
-    return event_to_read(session, event, user.id if user else None)
+@router.post("/events", status_code=201, response_model=EventOut)
+def create(data: EventCreate, db: DB, user: Organizer):
+    values = data.model_dump(exclude={"interests"})
+    e = Event(
+        **values,
+        organizer_id=user.organization_id,
+        interests=resolve_interests(db, data.interests),
+    )
+    db.add(e)
+    db.commit()
+    return event_view(db, e, user)
 
 
-@router.post("/events", response_model=EventRead, status_code=201)
-def create_event(payload: EventCreate, user: OrganizationUser, session: Annotated[Session, Depends(get_db_session)]) -> EventRead:
-    event = Event(**payload.model_dump(exclude={"category_ids"}), slug=make_event_slug(), organizer_id=user.organization_id, categories=load_categories(session, payload.category_ids))
-    session.add(event); session.commit(); session.refresh(event)
-    return event_to_read(session, event, user.id)
+@router.get("/events/{identity}", response_model=EventOut)
+def detail(identity: UUID, db: DB, user: OptionalUser):
+    e = get(db, Event, identity)
+    if e.status != "published":
+        own = user and (
+            user.role == "moderator" or user.organization_id == e.organizer_id
+        )
+        history = (
+            user
+            and user.role == "student"
+            and db.scalar(
+                select(EventRegistration.id).where(
+                    EventRegistration.event_id == e.id,
+                    EventRegistration.student_user_id == user.id,
+                )
+            )
+        )
+        if not own and not history:
+            fail(404, "not_found", "Мероприятие не найдено")
+    return event_view(db, e, user)
 
 
-@router.put("/events/{event_id}", response_model=EventRead)
-def update_event(event_id: UUID, payload: EventUpdate, user: OrganizationUser, session: Annotated[Session, Depends(get_db_session)]) -> EventRead:
-    event = session.scalar(event_query().where(Event.id == event_id))
-    if event is None: raise HTTPException(404, "Событие не найдено")
-    if event.organizer_id != user.organization_id: raise HTTPException(403, "Можно редактировать только свои события")
-    if event.status == EventStatus.CANCELLED: raise HTTPException(409, "Отменённое событие нельзя редактировать")
-    for key, value in payload.model_dump(exclude={"category_ids"}).items(): setattr(event, key, value)
-    event.categories = load_categories(session, payload.category_ids)
-    session.commit(); return event_to_read(session, event, user.id)
+@router.post("/events/{identity}/close-registration", response_model=EventOut)
+def close(identity: UUID, db: DB, user: Organizer):
+    return event_view(db, transition(db, identity, user, "registration_closed"), user)
 
 
-def change_status(event_id: UUID, target: EventStatus, user: User, session: Session) -> EventRead:
-    event = session.scalar(event_query().where(Event.id == event_id))
-    if event is None: raise HTTPException(404, "Событие не найдено")
-    if event.organizer_id != user.organization_id: raise HTTPException(403, "Можно управлять только своими событиями")
-    if event.status == EventStatus.CANCELLED: raise HTTPException(409, "Отменённое событие нельзя изменить")
-    event.status = target; session.commit(); return event_to_read(session, event, user.id)
+@router.post("/events/{identity}/open-registration", response_model=EventOut)
+def reopen(identity: UUID, db: DB, user: Organizer):
+    return event_view(db, transition(db, identity, user, "published"), user)
 
 
-@router.post("/events/{event_id}/publish", response_model=EventRead)
-def publish(event_id: UUID, user: OrganizationUser, session: Annotated[Session, Depends(get_db_session)]): return change_status(event_id, EventStatus.PUBLISHED, user, session)
-
-@router.post("/events/{event_id}/unpublish", response_model=EventRead)
-def unpublish(event_id: UUID, user: OrganizationUser, session: Annotated[Session, Depends(get_db_session)]): return change_status(event_id, EventStatus.DRAFT, user, session)
-
-@router.post("/events/{event_id}/cancel", response_model=EventRead)
-def cancel(event_id: UUID, user: OrganizationUser, session: Annotated[Session, Depends(get_db_session)]): return change_status(event_id, EventStatus.CANCELLED, user, session)
-
-
-@router.get("/recommendations", response_model=EventList)
-def recommendations(user: StudentUser, session: Annotated[Session, Depends(get_db_session)]) -> EventList:
-    from app.models.profiles.student_profile import StudentProfile
-    profile = session.scalar(select(StudentProfile).options(selectinload(StudentProfile.interests)).where(StudentProfile.user_id == user.id))
-    query = event_query().where(Event.status == EventStatus.PUBLISHED, Event.ends_at >= datetime.now(UTC))
-    events = list(session.scalars(query.order_by(Event.starts_at)).unique().all())
-    interests = {item.id for item in (profile.interests if profile else [])}
-    events.sort(key=lambda item: (-len(interests & {cat.id for cat in item.categories}), item.starts_at))
-    return EventList(items=events_to_read(session, events, user.id), total=len(events))
+@router.post("/events/{identity}/complete", response_model=EventOut)
+def complete(identity: UUID, db: DB, user: Organizer):
+    return event_view(db, transition(db, identity, user, "completed"), user)

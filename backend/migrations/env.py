@@ -1,11 +1,11 @@
+import os
 from logging.config import fileConfig
 
+import app.models  # noqa: F401
 from alembic import context
-from sqlalchemy import engine_from_config, pool
-
 from app.core.config import get_settings
 from app.db.base import Base
-import app.models  # noqa: F401
+from sqlalchemy import engine_from_config, pool
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
@@ -35,7 +35,19 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+        test_schema = os.environ.get("TALENTHUB_MIGRATION_TEST_SCHEMA")
+        if test_schema:
+            import re
+
+            if not re.fullmatch(r"test_[a-f0-9]{32}", test_schema):
+                raise RuntimeError("Invalid isolated test schema")
+            if not (connection.engine.url.database or "").startswith("talenthub_test"):
+                raise RuntimeError("Test schema requires a talenthub_test database")
+            connection.exec_driver_sql(f'SET search_path TO "{test_schema}"')
+            connection.commit()
+        context.configure(
+            connection=connection, target_metadata=target_metadata, compare_type=True
+        )
         with context.begin_transaction():
             context.run_migrations()
 

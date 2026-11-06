@@ -1,79 +1,71 @@
-from typing import Annotated
+from fastapi import APIRouter
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy.orm import Session
-
-from app.core.config import get_settings
-from app.core.security import create_access_token
-from app.db.session import get_db_session
-from app.routes.auth.dependencies import CurrentUser
-from app.schemas.auth.auth import AuthenticatedUser, LoginRequest, RegisterRequest
-from app.services.auth.auth import authenticate_user, register_user
+from app.core.errors import fail
+from app.core.security import create_access_token, hash_password, verify_password
+from app.models import StudentProfile, User
+from app.routes.shared.dependencies import DB, Current
+from app.schemas.auth.requests import Login, Register
+from app.schemas.auth.responses import SessionOut
+from app.schemas.users.responses import UserOut
+from app.services.organizations.access import school
+from app.services.users.views import user_view
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/login", response_model=AuthenticatedUser)
-def login(
-    credentials: LoginRequest,
-    response: Response,
-    session: Annotated[Session, Depends(get_db_session)],
-) -> AuthenticatedUser:
-    user = authenticate_user(session, credentials.email, credentials.password)
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверная почта или пароль")
-
-    settings = get_settings()
-    response.set_cookie(
-        key=settings.auth_cookie_name,
-        value=create_access_token(user.id),
-        max_age=settings.jwt_expiration_hours * 60 * 60,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite="lax",
-        path="/",
+def session_view(db, user):
+    return dict(
+        access_token=create_access_token(user.id),
+        token_type="bearer",
+        expires_in=28800,
+        user=user_view(db, user),
     )
-    return AuthenticatedUser.model_validate(user)
 
 
-@router.post("/register", response_model=AuthenticatedUser, status_code=status.HTTP_201_CREATED)
-def register(
-    payload: RegisterRequest,
-    response: Response,
-    session: Annotated[Session, Depends(get_db_session)],
-) -> AuthenticatedUser:
+@router.post("/register", status_code=201, response_model=SessionOut)
+def register(data: Register, db: DB):
+    if data.role == "student":
+        school(db, data.school_id)
+    user = User(
+        email=str(data.email).lower().strip(),
+        password_hash=hash_password(data.password),
+        first_name=data.first_name,
+        last_name=data.last_name,
+        role=data.role,
+    )
+    db.add(user)
     try:
-        user = register_user(session, payload)
-        session.commit()
-    except ValueError as exc:
-        session.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-
-    settings = get_settings()
-    response.set_cookie(
-        key=settings.auth_cookie_name,
-        value=create_access_token(user.id),
-        max_age=settings.jwt_expiration_hours * 60 * 60,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite="lax",
-        path="/",
-    )
-    return AuthenticatedUser.model_validate(user)
+        db.flush()
+        if data.role == "student":
+            db.add(
+                StudentProfile(
+                    user_id=user.id,
+                    birth_date=data.birth_date,
+                    school_id=data.school_id,
+                )
+            )
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        fail(409, "email_taken", "Email уже занят")
+    return session_view(db, user)
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(response: Response) -> None:
-    settings = get_settings()
-    response.delete_cookie(
-        settings.auth_cookie_name,
-        path="/",
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite="lax",
-    )
+@router.post("/login", response_model=SessionOut)
+def login(data: Login, db: DB):
+    user = db.scalar(select(User).where(User.email == str(data.email).lower().strip()))
+    if (
+        not user
+        or not user.is_active
+        or not verify_password(data.password, user.password_hash)
+        or (data.expected_role and user.role != data.expected_role)
+    ):
+        fail(401, "invalid_credentials", "Неверный email, пароль или роль")
+    return session_view(db, user)
 
 
-@router.get("/me", response_model=AuthenticatedUser)
-def get_me(user: CurrentUser) -> AuthenticatedUser:
-    return AuthenticatedUser.model_validate(user)
+@router.get("/me", response_model=UserOut)
+def me(db: DB, user: Current):
+    return user_view(db, user)

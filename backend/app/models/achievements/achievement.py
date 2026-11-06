@@ -1,24 +1,21 @@
-import uuid
-from datetime import UTC, datetime
+from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import (
+    ForeignKey,
+    String,
+)
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.models.shared.mixins import Created, Identity, Reviewed, choices
 
 
-class Achievement(Base):
+class Achievement(Identity, Created, Reviewed, Base):
     __tablename__ = "achievements"
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    student_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    registration_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("event_registrations.id", ondelete="CASCADE"), unique=True
+    __table_args__ = (choices("status", "pending confirmed rejected"),)
+    student_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("student_profiles.user_id"), index=True
     )
-    title: Mapped[str] = mapped_column(String(220))
-    description: Mapped[str] = mapped_column(Text, default="")
-    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    is_verified: Mapped[bool] = mapped_column(Boolean, default=True)
-
-    student: Mapped["User"] = relationship()  # noqa: F821
-    registration: Mapped["EventRegistration"] = relationship(back_populates="achievement")  # noqa: F821
+    title: Mapped[str] = mapped_column(String(250))
+    event_id: Mapped[UUID | None] = mapped_column(ForeignKey("events.id"))
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)

@@ -1,36 +1,25 @@
+"""Never import app settings before selecting an isolated test database."""
+
 import os
+import tempfile
+from pathlib import Path
 
-os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///./talenthub_test.db")
-os.environ.setdefault("JWT_SECRET", "test-secret-that-is-at-least-thirty-two-characters")
-os.environ.setdefault("TRUSTED_ORIGINS", "http://localhost:5173")
+from sqlalchemy.engine import make_url
 
-import pytest
-from fastapi.testclient import TestClient
-
-from app.core.security import hash_password
-from app.db.base import Base
-from app.db.session import SessionLocal, engine
-from app.main import app
-from app.models.users.user import User, UserRole
-
-
-@pytest.fixture(autouse=True)
-def reset_database():
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
-    with SessionLocal.begin() as session:
-        session.add(
-            User(
-                email="student@talenthub.by",
-                full_name="Анна Коваль",
-                password_hash=hash_password("student-password"),
-                role=UserRole.STUDENT,
-            )
-        )
-    yield
-    Base.metadata.drop_all(engine)
+TEST_ROOT = Path(tempfile.mkdtemp(prefix="talenthub-test-"))
+TEST_URL = os.environ.get(
+    "TALENTHUB_TEST_DATABASE_URL", f"sqlite+pysqlite:///{TEST_ROOT / 'api.db'}"
+)
+url = make_url(TEST_URL)
+if url.get_backend_name() != "sqlite" and not (url.database or "").startswith(
+    "talenthub_test"
+):
+    raise RuntimeError(
+        "Refusing tests: PostgreSQL database name must start with talenthub_test"
+    )
+os.environ["DATABASE_URL"] = TEST_URL
+os.environ["JWT_SECRET"] = "isolated-test-secret-with-more-than-thirty-two-characters"
+os.environ["TRUSTED_ORIGINS"] = "http://frontend.test"
 
 
-@pytest.fixture
-def client() -> TestClient:
-    return TestClient(app, base_url="http://localhost")
+pytest_plugins = ["tests.support.database"]

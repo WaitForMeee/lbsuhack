@@ -1,16 +1,22 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
 
 settings = get_settings()
-engine_options: dict[str, object] = {"pool_pre_ping": True}
+options = {"pool_pre_ping": True}
 if settings.database_url.startswith("sqlite"):
-    engine_options["connect_args"] = {"check_same_thread": False}
+    options["connect_args"] = {"check_same_thread": False}
+engine = create_engine(settings.database_url, **options)
+if engine.dialect.name == "sqlite":
 
-engine = create_engine(settings.database_url, **engine_options)
+    @event.listens_for(engine, "connect")
+    def foreign_keys(connection, record):
+        connection.execute("PRAGMA foreign_keys=ON")
+
+
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
