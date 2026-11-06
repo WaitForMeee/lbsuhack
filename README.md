@@ -148,14 +148,16 @@ TALENTHUB_TEST_DATABASE_URL='postgresql+psycopg://USER:PASSWORD@localhost:5432/t
 | Настройка | Значение |
 | --- | --- |
 | Language / Runtime | `Python 3` |
-| Root Directory | `backend` |
-| Build Command | `bash render-build.sh` |
-| Start Command | `bash render-start.sh` |
+| Root Directory | оставить пустым — корень репозитория |
+| Build Command | `bash backend/render-build.sh` |
+| Start Command | `bash backend/render-start.sh` |
 | Health Check Path | `/health` |
 
 В Environment задайте `DATABASE_URL`, `JWT_SECRET` и `TRUSTED_ORIGINS`. Для первого запуска новой версии используйте пустую PostgreSQL БД или схему, как описано выше. Python 3.13 указан в корневом `.python-version`.
 
-[`render-build.sh`](backend/render-build.sh) устанавливает зависимости по `uv.lock` через `uv sync --locked --no-dev`. Сборке не нужен доступ к БД. Render [предоставляет uv](https://render.com/docs/uv-version), когда `uv.lock` находится в корневой директории сервиса — поэтому здесь указана `backend`.
+[`render-build.sh`](backend/render-build.sh) создаёт отдельное окружение `.render-tools`, устанавливает в него `uv==0.11.6` и вызывает этот бинарник напрямую для `sync --locked --no-dev`. Это обходит оболочку Render, которая может присутствовать в `PATH` без установленного `uv`, когда lockfile находится в подпапке. Зависимости приложения устанавливаются в `backend/.venv`; сборке не нужен доступ к БД.
+
+Если в Render уже задан Root Directory `backend`, используйте команды `bash render-build.sh` и `bash render-start.sh`. Оба варианта поддерживаются: скрипты сами переходят в свою директорию.
 
 [`render-start.sh`](backend/render-start.sh) проверяет обязательные переменные, применяет миграции и запускает Uvicorn одним процессом без `--reload`. Если миграция завершается ошибкой, сервер не запускается. Используется `0.0.0.0:$PORT`, с локальным запасным портом `10000`, согласно [требованиям Render к портам](https://render.com/docs/web-services#port-binding).
 

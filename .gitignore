@@ -8,6 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+.render-tools/
 
 # Local configuration and secrets
 .env
