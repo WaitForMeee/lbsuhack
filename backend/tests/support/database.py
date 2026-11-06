@@ -1,6 +1,4 @@
-import os
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 
@@ -9,23 +7,11 @@ import pytest
 def migrated_database():
     from alembic import command
     from alembic.config import Config
+    from app.core.config import get_settings
     from app.db.session import engine
 
-    # PostgreSQL runs get a unique schema; even a valid test DB keeps other schemas intact.
-    schema = "test_" + uuid4().hex
-    if engine.dialect.name == "postgresql":
-        with engine.begin() as conn:
-            conn.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
-        from sqlalchemy import event
-
-        @event.listens_for(engine, "connect")
-        def search_path(connection, record):
-            with connection.cursor() as cursor:
-                cursor.execute(f'SET search_path TO "{schema}"')
-            connection.commit()
-
-        engine.dispose()
-        os.environ["TALENTHUB_MIGRATION_TEST_SCHEMA"] = schema
+    # The same DATABASE_SCHEMA selects both app and migration connections.
+    schema = get_settings().database_schema
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     command.upgrade(config, "head")
     yield

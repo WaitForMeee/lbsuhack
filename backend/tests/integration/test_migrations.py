@@ -16,7 +16,6 @@ def alembic(db_path, *args):
         env={
             **os.environ,
             "DATABASE_URL": f"sqlite+pysqlite:///{db_path}",
-            "TALENTHUB_MIGRATION_TEST_SCHEMA": "",
         },
         capture_output=True,
         text=True,

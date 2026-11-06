@@ -1,14 +1,19 @@
-import os
 from logging.config import fileConfig
 
 import app.models  # noqa: F401
 from alembic import context
 from app.core.config import get_settings
 from app.db.base import Base
-from sqlalchemy import engine_from_config, pool
+from app.db.engine import (
+    create_database_engine,
+    prepare_migration_schema,
+    quoted_schema,
+)
+from sqlalchemy import pool
 
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
+settings = get_settings()
+config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -17,36 +22,40 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
+    from sqlalchemy.engine import make_url
+
+    is_postgresql = make_url(settings.database_url).get_backend_name() == "postgresql"
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        version_table_schema=settings.database_schema if is_postgresql else None,
     )
     with context.begin_transaction():
+        if is_postgresql:
+            schema = quoted_schema(settings.database_schema)
+            context.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+            context.execute(f"SET SESSION search_path TO {schema}")
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    connectable = create_database_engine(
+        settings.database_url,
+        settings.database_schema,
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        test_schema = os.environ.get("TALENTHUB_MIGRATION_TEST_SCHEMA")
-        if test_schema:
-            import re
-
-            if not re.fullmatch(r"test_[a-f0-9]{32}", test_schema):
-                raise RuntimeError("Invalid isolated test schema")
-            if not (connection.engine.url.database or "").startswith("talenthub_test"):
-                raise RuntimeError("Test schema requires a talenthub_test database")
-            connection.exec_driver_sql(f'SET search_path TO "{test_schema}"')
-            connection.commit()
+        prepare_migration_schema(connection, settings.database_schema)
         context.configure(
-            connection=connection, target_metadata=target_metadata, compare_type=True
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+            version_table_schema=settings.database_schema
+            if connection.dialect.name == "postgresql"
+            else None,
         )
         with context.begin_transaction():
             context.run_migrations()

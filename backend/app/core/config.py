@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     app_name: str = "TalentHub"
     api_prefix: str = "/api/v1"
     database_url: str
+    database_schema: str = Field(
+        default="talenthub_v2", pattern=r"^[a-z][a-z0-9_]{0,62}$"
+    )
     jwt_secret: str = Field(min_length=32)
     jwt_algorithm: str = "HS256"
     trusted_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
