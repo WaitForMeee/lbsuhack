@@ -23,19 +23,23 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def create_access_token(
-    user_id: UUID, *, expires_delta: timedelta | None = None
+    user_id: UUID, *, expires_delta: timedelta | None = None,
+    credential_version: int | None = None,
 ) -> str:
     settings = get_settings()
     now = datetime.now(UTC)
     expires_at = now + (expires_delta or timedelta(hours=8))
+    claims = {"sub": str(user_id), "iat": now, "exp": expires_at, "purpose": "access"}
+    if credential_version is not None:
+        claims["credential_version"] = credential_version
     return jwt.encode(
-        {"sub": str(user_id), "iat": now, "exp": expires_at},
+        claims,
         settings.jwt_secret,
         algorithm=settings.jwt_algorithm,
     )
 
 
-def decode_access_token(token: str) -> UUID:
+def decode_access_claims(token: str) -> dict:
     settings = get_settings()
     try:
         payload = jwt.decode(
@@ -44,6 +48,13 @@ def decode_access_token(token: str) -> UUID:
             algorithms=[settings.jwt_algorithm],
             options={"require": ["sub", "iat", "exp"]},
         )
-        return UUID(payload["sub"])
+        UUID(payload["sub"])
+        if payload.get("purpose", "access") != "access":
+            raise ValueError("Invalid token purpose")
+        return payload
     except (InvalidTokenError, KeyError, TypeError, ValueError) as exc:
         raise ValueError("Invalid access token") from exc
+
+
+def decode_access_token(token: str) -> UUID:
+    return UUID(decode_access_claims(token)["sub"])

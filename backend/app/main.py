@@ -16,6 +16,7 @@ from app.routes import (
     reference,
     registrations,
     students,
+    family_invitations,
 )
 from app.schemas.shared.errors import ErrorOut
 
@@ -32,9 +33,19 @@ def create_app():
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
     )
+
+    @app.middleware("http")
+    async def credentials_are_not_cached(request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if any(path.startswith(settings.api_prefix + prefix) for prefix in (
+            "/auth/", "/parents/me/invitation", "/family-invitations/", "/moderation/organization-accounts",
+        )):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException):
@@ -76,6 +87,7 @@ def create_app():
         reference,
         students,
         parents,
+        family_invitations,
         organizations,
         events,
         registrations,

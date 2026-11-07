@@ -2,7 +2,14 @@
 
 from app.core.security import verify_password
 from app.db.session import SessionLocal
-from app.models import Event, EventRegistration, Notification, ParentLink, User
+from app.models import (
+    Event,
+    EventRegistration,
+    Notification,
+    ParentChild,
+    ParentLink,
+    User,
+)
 from app.scripts.reset_demo import reset_demo
 from app.scripts.seed_demo import demo_id, seed_demo
 from sqlalchemy import func, select
@@ -17,7 +24,13 @@ def test_seed_repeatable_preserves_passwords_profile_and_decisions():
         event.status = "rejected"
         event.description = "Изменённый текст"
         db.get(EventRegistration, demo_id("registration:code")).status = "cancelled"
-        db.add(ParentLink(parent_user_id=demo_id("user:olga"), student_user_id=user.id))
+        db.get(ParentLink, demo_id("user:olga")).student_user_id = demo_id("user:mark")
+        db.add(
+            ParentChild(
+                parent_user_id=demo_id("user:olga"),
+                student_user_id=demo_id("user:mark"),
+            )
+        )
     with SessionLocal.begin() as db:
         before = {
             m.__name__: db.scalar(select(func.count()).select_from(m))
@@ -38,7 +51,14 @@ def test_seed_repeatable_preserves_passwords_profile_and_decisions():
             db.get(EventRegistration, demo_id("registration:code")).status
             == "cancelled"
         )
-        assert db.get(ParentLink, demo_id("user:olga")) is not None
+        assert db.get(ParentLink, demo_id("user:olga")).student_user_id == demo_id(
+            "user:mark"
+        )
+        assert (
+            db.get(ParentChild, (demo_id("user:olga"), demo_id("user:alina")))
+            is not None
+        )
+        assert db.scalar(select(func.count()).select_from(ParentChild)) == 2
         assert {n.type for n in db.scalars(select(Notification))} == {
             "confirmation",
             "interest",
@@ -67,5 +87,68 @@ def test_explicit_reset_restores_demo_and_preserves_unrelated_account():
             db.scalar(select(User).where(User.email == "custom@example.org"))
             is not None
         )
-        assert db.get(ParentLink, demo_id("user:olga")) is None
+        assert db.get(ParentLink, demo_id("user:olga")).student_user_id == demo_id(
+            "user:alina"
+        )
+        assert (
+            db.get(ParentChild, (demo_id("user:olga"), demo_id("user:alina")))
+            is not None
+        )
+        assert db.scalar(select(func.count()).select_from(ParentChild)) == 1
         assert db.scalar(select(func.count()).select_from(Event)) == 17
+
+
+def test_seed_school_marketplace_is_actionable_and_preserves_responses(client, auth):
+    from app.models import PartnershipRequest, PartnershipResponse
+
+    expected = {
+        str(demo_id("partnership:school-market-mentors")),
+        str(demo_id("partnership:school-market-lab")),
+    }
+    for persona in ("company", "academy"):
+        market = client.get(
+            "/api/v1/partnership-requests?view=marketplace", headers=auth(persona)
+        )
+        assert market.status_code == 200
+        cards = [p for p in market.json()["items"] if p["id"] in expected]
+        assert len(cards) == 2
+        assert all(
+            p["visibility"] == "all_companies"
+            and p["moderation_status"] == "approved"
+            and p["my_response"] is None
+            for p in cards
+        )
+    identity = str(demo_id("partnership:school-market-mentors"))
+    response = client.post(
+        f"/api/v1/partnership-requests/{identity}/responses", headers=auth("company")
+    )
+    assert response.status_code == 201
+    response_id = response.json()["id"]
+    assert (
+        client.patch(
+            f"/api/v1/partnership-responses/{response_id}/decision",
+            headers=auth("school"),
+            json={"decision": "accepted"},
+        ).status_code
+        == 200
+    )
+    with SessionLocal.begin() as db:
+        seed_demo(db)
+    with SessionLocal() as db:
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(PartnershipRequest)
+                .where(PartnershipRequest.visibility == "all_companies")
+            )
+            == 2
+        )
+        assert (
+            db.scalar(
+                select(PartnershipResponse.status).where(
+                    PartnershipResponse.request_id
+                    == demo_id("partnership:school-market-mentors")
+                )
+            )
+            == "accepted"
+        )

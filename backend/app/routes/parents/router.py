@@ -10,21 +10,22 @@ from app.models import (
     Event,
     ParentChild,
     ParentLink,
-    StudentProfile,
     User,
 )
 from app.models.shared.mixins import now
 from app.routes.shared.dependencies import DB, Parent
 from app.schemas.events.responses import EventOut
 from app.schemas.parents.children import ChildrenOut, SuggestionCreate, SuggestionOut
-from app.schemas.parents.requests import ChildMatch
 from app.schemas.parents.responses import ChildEnvelope
 from app.schemas.shared.base import Items
 from app.services.events.recommendations import recommendation_cards
 from app.services.notifications.service import notify
 from app.services.parents.views import child_view
 from app.services.shared.repository import get
-from app.services.shared.text import normalize
+
+from app.models import FamilyInvitation
+from app.schemas.auth.access import InvitationEnvelope
+from app.services.parents.invitations import invitation_view
 
 router = APIRouter(prefix="/parents/me", tags=["parents"])
 
@@ -33,38 +34,6 @@ router = APIRouter(prefix="/parents/me", tags=["parents"])
 def child(db: DB, user: Parent):
     link = db.get(ParentLink, user.id)
     return dict(child=child_view(db, link.student_user_id) if link else None)
-
-
-@router.put("/child", response_model=ChildEnvelope)
-def link_child(data: ChildMatch, db: DB, user: Parent):
-    db.refresh(user, with_for_update=True)
-    matches = [
-        u
-        for u in db.scalars(
-            select(User)
-            .join(StudentProfile, StudentProfile.user_id == User.id)
-            .where(User.role == "student", StudentProfile.birth_date == data.birth_date)
-        )
-        if normalize(u.first_name) == normalize(data.first_name)
-        and normalize(u.last_name) == normalize(data.last_name)
-    ]
-    if not matches:
-        fail(404, "child_not_found", "Ребёнок не найден")
-    if len(matches) > 1:
-        fail(409, "ambiguous_child", "Найдено несколько учеников")
-    link = db.get(ParentLink, user.id)
-    if link is None:
-        link = ParentLink(parent_user_id=user.id, student_user_id=matches[0].id)
-        db.add(link)
-    else:
-        link.student_user_id = matches[0].id
-        link.linked_at = now()
-    if db.get(ParentChild, (user.id, link.student_user_id)) is None:
-        db.add(
-            ParentChild(parent_user_id=user.id, student_user_id=link.student_user_id)
-        )
-    db.commit()
-    return dict(child=child_view(db, link.student_user_id))
 
 
 @router.get("/children", response_model=ChildrenOut)
@@ -81,11 +50,6 @@ def children(db: DB, user: Parent):
         items=[child_view(db, l.student_user_id) for l in links],
         active_child_id=active.student_user_id if active else None,
     )
-
-
-@router.post("/children", response_model=ChildEnvelope, status_code=201)
-def add_child(data: ChildMatch, db: DB, user: Parent):
-    return link_child(data, db, user)
 
 
 @router.put("/children/{identity}/select", response_model=ChildEnvelope)
@@ -170,3 +134,31 @@ def child_recommendations(
     if db.get(ParentChild, (user.id, identity)) is None:
         fail(404, "not_found", "Ребёнок не привязан к этому аккаунту")
     return recommendation_cards(db, db.get(User, identity), interest)
+
+
+@router.get("/invitation", response_model=InvitationEnvelope)
+def get_invitation(db: DB, user: Parent):
+    return invitation_view(db.get(FamilyInvitation, user.id))
+
+
+@router.post("/invitation", response_model=InvitationEnvelope)
+def create_invitation(db: DB, user: Parent):
+    db.refresh(user, with_for_update=True)
+    invitation = db.get(FamilyInvitation, user.id)
+    if invitation is None:
+        invitation = FamilyInvitation(parent_user_id=user.id)
+        db.add(invitation)
+        db.flush()
+    result = invitation_view(invitation)
+    db.commit()
+    return result
+
+
+@router.delete("/invitation", response_model=InvitationEnvelope)
+def delete_invitation(db: DB, user: Parent):
+    db.refresh(user, with_for_update=True)
+    invitation = db.get(FamilyInvitation, user.id)
+    if invitation is not None:
+        db.delete(invitation)
+    db.commit()
+    return {"invitation": None}

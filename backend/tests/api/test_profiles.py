@@ -80,55 +80,26 @@ def test_onboarding_custom_interests_and_school_transfer(client, auth):
 
 
 def test_parent_link_privacy_and_failed_replacement(client, auth):
-    headers = auth("olga")
+    session = client.post(
+        API + "/auth/register",
+        json=dict(
+            role="parent",
+            first_name="Новый",
+            last_name="Родитель",
+            email="fresh.parent@example.org",
+            password="password123",
+        ),
+    ).json()
+    headers = {"Authorization": "Bearer " + session["access_token"]}
     assert client.get(API + "/parents/me/child", headers=headers).json() == {
         "child": None
     }
-    match = dict(first_name=" АЛИНА ", last_name="коваль", birth_date="2010-04-12")
-    response = client.put(API + "/parents/me/child", headers=headers, json=match)
+    token = client.post(API + "/parents/me/invitation", headers=headers).json()["invitation"]["token"]
+    response = client.post(API + "/family-invitations/accept", headers=auth("alina"), json={"token": token})
     assert response.status_code == 200, response.text
-    child = response.json()["child"]
+    child = client.get(API + "/parents/me/child", headers=headers).json()["child"]
     assert "email" not in str(child) and "password" not in str(child)
     assert len(child["attendances"]) == 1 and len(child["achievements"]) == 1
-    assert (
-        client.put(
-            API + "/parents/me/child",
-            headers=headers,
-            json={**match, "last_name": "Нет"},
-        ).status_code
-        == 404
-    )
-    assert (
-        client.get(API + "/parents/me/child", headers=headers).json()["child"][
-            "profile"
-        ]["id"]
-        == child["profile"]["id"]
-    )
-    with SessionLocal.begin() as db:
-        u = User(
-            email="duplicate@example.org",
-            first_name="Алина",
-            last_name="Коваль",
-            role="student",
-            password_hash="unused",
-        )
-        db.add(u)
-        db.flush()
-        db.add(
-            StudentProfile(
-                user_id=u.id,
-                birth_date=date(2010, 4, 12),
-                school_id=demo_id("org:school"),
-            )
-        )
-    assert (
-        client.put(API + "/parents/me/child", headers=headers, json=match).status_code
-        == 409
-    )
-    assert (
-        client.get(API + "/parents/me/child", headers=headers).json()["child"][
-            "profile"
-        ]["id"]
-        == child["profile"]["id"]
-    )
+    assert client.put(API + "/parents/me/child", headers=headers, json={}).status_code == 405
+    assert client.post(API + "/parents/me/children", headers=headers, json={}).status_code == 405
     assert client.get(API + "/students/me", headers=headers).status_code == 403

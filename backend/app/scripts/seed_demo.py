@@ -1,5 +1,6 @@
 """Insert missing demo records only; existing decisions, dates and passwords survive reruns."""
 
+import hashlib
 from datetime import date, timedelta
 from uuid import NAMESPACE_URL, uuid5
 
@@ -14,15 +15,19 @@ from app.models import (
     Interest,
     Notification,
     Organization,
+    ParentChild,
+    ParentLink,
     PartnershipRequest,
     StudentProfile,
     User,
 )
 from app.models.shared.mixins import now
 from app.services.shared.text import normalize
+from app.services.organizations.credentials import issue_token
 from app.services.shared.time import today
 
 PASSWORD = "demo1234"
+DEMO_ORGANIZATION_TOKENS = {key: "th_demo_" + key + "_" + hashlib.sha256(("talenthub-demo:" + key).encode()).hexdigest() for key in ("school", "company", "school2", "academy")}
 INTERESTS = [
     "Математика",
     "Информатика",
@@ -122,6 +127,8 @@ def seed_demo(db=None):
             role=role,
             organization_id=orgs[org].id if org else None,
         )
+        if org and users[key].organization_token_hash is None:
+            issue_token(users[key], DEMO_ORGANIZATION_TOKENS[key])
     for key, birthday, org, grade, names in [
         ("alina", date(2010, 4, 12), "school", 10, ["Математика", "Информатика"]),
         ("mark", date(2011, 9, 3), "school2", None, []),
@@ -140,6 +147,12 @@ def seed_demo(db=None):
                     interests=[interests[n] for n in names],
                 )
             )
+    db.flush()
+    parent_id, student_id = users["olga"].id, users["alina"].id
+    if db.get(ParentChild, (parent_id, student_id)) is None:
+        db.add(ParentChild(parent_user_id=parent_id, student_user_id=student_id))
+    if db.get(ParentLink, parent_id) is None:
+        db.add(ParentLink(parent_user_id=parent_id, student_user_id=student_id))
     db.flush()
     event_specs = [
         (
@@ -422,6 +435,22 @@ def seed_demo(db=None):
             "approved",
         ),
         (
+            "school-market-mentors",
+            "school",
+            None,
+            "all_companies",
+            "Наставники для школьного хакатона",
+            "approved",
+        ),
+        (
+            "school-market-lab",
+            "school2",
+            None,
+            "all_companies",
+            "Практическая лаборатория для гимназистов",
+            "approved",
+        ),
+        (
             "pending",
             "company",
             "school2",
@@ -438,7 +467,10 @@ def seed_demo(db=None):
             target_org_id=orgs[target].id if target else None,
             visibility=visibility,
             title=title,
-            description="Совместная образовательная инициатива для школьников.",
+            description={
+                "school-market-mentors": "Лицей БГУ ищет IT-компанию для проведения школьного хакатона: нужны наставники, практические задачи и помощь с оценкой проектов учащихся 9–11 классов.",
+                "school-market-lab": "Гимназия №1 Минск приглашает компании и академии провести практические занятия по естественным наукам: нужны эксперты, материалы и совместная программа для учащихся 8–10 классов.",
+            }.get(key, "Совместная образовательная инициатива для школьников."),
             moderation_status=status,
             reviewed_by=users["admin"].id if status == "approved" else None,
             reviewed_at=now() if status == "approved" else None,

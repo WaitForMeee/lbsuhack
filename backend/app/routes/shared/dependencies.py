@@ -5,7 +5,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.errors import fail
-from app.core.security import decode_access_token
+from app.core.security import decode_access_claims
+from uuid import UUID
 from app.db.session import get_db_session
 from app.models import Organization, User
 
@@ -23,12 +24,15 @@ def optional_user(
             fail(401, "invalid_token", "Ожидается Authorization: Bearer <token>")
         return None
     try:
-        identity = decode_access_token(credentials.credentials)
+        claims = decode_access_claims(credentials.credentials)
+        identity = UUID(claims["sub"])
     except ValueError:
         fail(401, "invalid_token", "Недействительный или истёкший токен")
     user = db.get(User, identity)
     if user is None or not user.is_active:
         fail(401, "invalid_token", "Недействительный токен")
+    if user.role in ("school", "company") and claims.get("credential_version") != user.credential_version:
+        fail(401, "invalid_token", "Доступ перевыпущен. Войдите с новым токеном")
     return user
 
 

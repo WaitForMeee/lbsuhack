@@ -50,9 +50,11 @@ def auth(client):
 
     def headers(persona):
         if persona not in cache:
+            from app.scripts.seed_demo import DEMO_ORGANIZATION_TOKENS
+            is_org = persona in DEMO_ORGANIZATION_TOKENS
             response = client.post(
-                "/api/v1/auth/login",
-                json={"email": persona + "@demo.by", "password": "demo1234"},
+                "/api/v1/auth/organization-login" if is_org else "/api/v1/auth/login",
+                json={"token": DEMO_ORGANIZATION_TOKENS[persona]} if is_org else {"email": persona + "@demo.by", "password": "demo1234"},
             )
             assert response.status_code == 200, response.text
             cache[persona] = {

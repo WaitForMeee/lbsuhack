@@ -4,6 +4,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     ForeignKey,
+    Integer,
     String,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -30,3 +31,5 @@ class User(Identity, Created, Base):
         ForeignKey("organizations.id"), index=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    organization_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    credential_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

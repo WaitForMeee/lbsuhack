@@ -7,6 +7,8 @@ from app.core.security import create_access_token, hash_password, verify_passwor
 from app.models import StudentProfile, User
 from app.routes.shared.dependencies import DB, Current
 from app.schemas.auth.requests import Login, Register
+from app.schemas.auth.access import OrganizationLogin
+from app.services.organizations.credentials import token_hash
 from app.schemas.auth.responses import SessionOut
 from app.schemas.users.responses import UserOut
 from app.services.organizations.access import school
@@ -17,7 +19,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 def session_view(db, user):
     return dict(
-        access_token=create_access_token(user.id),
+        access_token=create_access_token(user.id, credential_version=user.credential_version if user.role in ("school", "company") else None),
         token_type="bearer",
         expires_in=28800,
         user=user_view(db, user),
@@ -59,10 +61,19 @@ def login(data: Login, db: DB):
     if (
         not user
         or not user.is_active
+        or user.role in ("school", "company")
         or not verify_password(data.password, user.password_hash)
         or (data.expected_role and user.role != data.expected_role)
     ):
         fail(401, "invalid_credentials", "Неверный email, пароль или роль")
+    return session_view(db, user)
+
+
+@router.post("/organization-login", response_model=SessionOut)
+def organization_login(data: OrganizationLogin, db: DB):
+    user = db.scalar(select(User).where(User.organization_token_hash == token_hash(data.token)).with_for_update())
+    if user is None or not user.is_active or user.role not in ("school", "company") or (data.expected_role and user.role != data.expected_role):
+        fail(401, "invalid_credentials", "Неверный токен доступа или роль")
     return session_view(db, user)
 
 

@@ -7,19 +7,14 @@ def test_parent_multiple_children_switch_recommend_suggest_and_notification_read
     client, auth
 ):
     headers = auth("olga")
-    assert (
-        client.get(API + "/parents/me/children", headers=headers).json()["items"] == []
-    )
-    for first, last, birth in [
-        ("Алина", "Коваль", "2010-04-12"),
-        ("Марк", "Левин", "2011-09-03"),
-    ]:
-        r = client.post(
-            API + "/parents/me/children",
-            headers=headers,
-            json=dict(first_name=first, last_name=last, birth_date=birth),
-        )
-        assert r.status_code == 201, r.text
+    initial = client.get(API + "/parents/me/children", headers=headers).json()
+    assert len(initial["items"]) == 1
+    assert initial["items"][0]["profile"]["id"] == str(demo_id("user:alina"))
+    assert initial["active_child_id"] == str(demo_id("user:alina"))
+    invitation = client.post(API + "/parents/me/invitation", headers=headers).json()["invitation"]["token"]
+    for persona in ("alina", "mark"):
+        r = client.post(API + "/family-invitations/accept", headers=auth(persona), json={"token": invitation})
+        assert r.status_code == 200, r.text
     children = client.get(API + "/parents/me/children", headers=headers).json()
     assert len(children["items"]) == 2
     alina = str(demo_id("user:alina"))

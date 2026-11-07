@@ -20,9 +20,10 @@ API = "/api/v1"
     ],
 )
 def test_five_logins(client, persona, role):
+    from app.scripts.seed_demo import DEMO_ORGANIZATION_TOKENS
     response = client.post(
-        API + "/auth/login",
-        json=dict(email=persona + "@demo.by", password="demo1234", expected_role=role),
+        API + ("/auth/organization-login" if role in ("school", "company") else "/auth/login"),
+        json=dict(token=DEMO_ORGANIZATION_TOKENS[persona], expected_role=role) if role in ("school", "company") else dict(email=persona + "@demo.by", password="demo1234", expected_role=role),
     )
     assert response.status_code == 200
     session = response.json()
@@ -163,3 +164,22 @@ def test_password_whitespace_is_preserved(client):
         ).status_code
         == 200
     )
+
+
+def test_cors_allows_any_origin_when_wildcard_configured(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.core.config import get_settings
+    from app.main import create_app
+
+    monkeypatch.setattr(get_settings(), "trusted_origins", "*")
+    with TestClient(create_app()) as public_client:
+        response = public_client.options(
+            API + "/auth/me",
+            headers={
+                "Origin": "https://new-frontend.example.org",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "Authorization, Content-Type",
+            },
+        )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"
