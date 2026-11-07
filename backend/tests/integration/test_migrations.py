@@ -146,3 +146,52 @@ def test_upgrade_preserves_parent_link_and_existing_partnership_response(tmp_pat
         assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
     assert alembic(path, "check").returncode == 0
     db.dispose()
+
+
+def test_existing_demo_tokens_are_ready_after_upgrade_without_reseeding(tmp_path):
+    import hashlib
+    from app.scripts.seed_demo import demo_id
+
+    path = tmp_path / "existing-demo-tokens.db"
+    result = alembic(path, "upgrade", "20261107_0003")
+    assert result.returncode == 0, result.stderr
+    environment = {**os.environ, "DATABASE_URL": f"sqlite+pysqlite:///{path}"}
+    seeded = subprocess.run([sys.executable, "-m", "app.scripts.seed_demo"], cwd=ROOT,
+        env=environment, capture_output=True, text=True)
+    assert seeded.returncode == 0, seeded.stderr
+    database = create_engine(environment["DATABASE_URL"])
+    replacement = "custom-token-already-issued-by-moderator"
+    with database.begin() as connection:
+        # A previously deployed database contains users but no token credentials.
+        connection.execute(text("UPDATE users SET organization_token_hash=NULL, credential_version=0 WHERE role IN ('school','company')"))
+        # An explicitly rotated account must not regain its public demo credential.
+        connection.execute(text("UPDATE users SET organization_token_hash=:digest, credential_version=7 WHERE id=:identity"),
+            {"digest": hashlib.sha256(replacement.encode()).hexdigest(), "identity": demo_id("user:school2").hex})
+        connection.execute(text("INSERT INTO users (id,email,password_hash,first_name,last_name,role,organization_id,is_active,created_at,credential_version) SELECT :identity,'custom.organization@example.org',password_hash,first_name,last_name,role,organization_id,is_active,created_at,0 FROM users WHERE id=:source"), {"identity":demo_id("user:custom-organization").hex,"source":demo_id("user:school").hex})
+        before = connection.execute(text("SELECT id,email,password_hash,first_name,last_name,organization_id FROM users ORDER BY id")).all()
+        families = connection.execute(text("SELECT parent_user_id,student_user_id FROM parent_children")).all()
+    result = alembic(path, "upgrade", "head")
+    assert result.returncode == 0, result.stderr
+    # Exercise real authentication after the exact deployment sequence: migrate, no seed.
+    script = """
+from fastapi.testclient import TestClient
+from app.main import app
+from app.scripts.seed_demo import DEMO_ORGANIZATION_TOKENS
+with TestClient(app) as client:
+    for key, role in [('school','school'), ('company','company'), ('academy','company')]:
+        response = client.post('/api/v1/auth/organization-login', json={'token': DEMO_ORGANIZATION_TOKENS[key], 'expected_role': role})
+        assert response.status_code == 200, (key, response.status_code, response.text)
+    response = client.post('/api/v1/auth/organization-login', json={'token':'custom-token-already-issued-by-moderator', 'expected_role':'school'})
+    assert response.status_code == 200, response.status_code
+    response = client.post('/api/v1/auth/organization-login', json={'token':DEMO_ORGANIZATION_TOKENS['school2']})
+    assert response.status_code == 401, response.status_code
+"""
+    checked = subprocess.run([sys.executable, "-c", script], cwd=ROOT, env=environment, capture_output=True, text=True)
+    assert checked.returncode == 0, checked.stderr
+    with database.connect() as connection:
+        assert connection.execute(text("SELECT id,email,password_hash,first_name,last_name,organization_id FROM users ORDER BY id")).all() == before
+        assert connection.execute(text("SELECT parent_user_id,student_user_id FROM parent_children")).all() == families
+        assert connection.scalar(text("SELECT credential_version FROM users WHERE id=:identity"), {"identity":demo_id("user:school2").hex}) == 7
+        assert connection.scalar(text("SELECT organization_token_hash FROM users WHERE id=:identity"), {"identity":demo_id("user:custom-organization").hex}) is None
+    assert alembic(path, "upgrade", "head").returncode == 0
+    database.dispose()
