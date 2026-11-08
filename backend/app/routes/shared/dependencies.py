@@ -4,6 +4,7 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from app.core.demo import preview_only
 from app.core.errors import fail
 from app.core.security import decode_access_claims
 from uuid import UUID
@@ -62,3 +63,10 @@ School = Annotated[User, Depends(roles("school"))]
 Moderator = Annotated[User, Depends(roles("moderator"))]
 Current = Annotated[User, Depends(current_user)]
 OptionalUser = Annotated[User | None, Depends(optional_user)]
+
+
+def enforce_demo_write_policy(request: Request, user: OptionalUser):
+    if user is None or not preview_only(user) or request.method in {"GET", "HEAD", "OPTIONS"}:
+        return
+    if not getattr(request.scope.get("endpoint"), "demo_preview", False):
+        fail(403, "demo_read_only", "Демо-аккаунт доступен только для просмотра")

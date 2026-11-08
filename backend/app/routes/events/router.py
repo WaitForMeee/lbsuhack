@@ -1,11 +1,13 @@
 from typing import Annotated, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Query
 from sqlalchemy import select
 
+from app.core.demo import demo_preview, preview_only
 from app.core.errors import fail
-from app.models import Event, EventRegistration
+from app.models import Event, EventRegistration, Interest
+from app.models.shared.mixins import now
 from app.routes.shared.dependencies import DB, OptionalUser, Organizer, Student
 from app.schemas.events.requests import EventCreate
 from app.schemas.events.responses import EventOut
@@ -108,8 +110,20 @@ def recommendations(
 
 
 @router.post("/events", status_code=201, response_model=EventOut)
+@demo_preview
 def create(data: EventCreate, db: DB, user: Organizer):
     values = data.model_dump(exclude={"interests"})
+    if preview_only(user):
+        interests = []
+        for key, name in {normalize(n): " ".join(n.split()) for n in data.interests}.items():
+            if not key:
+                fail(422, "invalid_interest", "Пустое направление")
+            existing = db.scalar(select(Interest).where(Interest.normalized_name == key))
+            interests.append(existing or Interest(id=uuid4(), name=name, normalized_name=key, is_suggested=False))
+        e = Event(**values, id=uuid4(), created_at=now(), status="pending",
+                  organizer_id=user.organization_id, interests=interests)
+        return event_view(db, e, user)
+
     e = Event(
         **values,
         organizer_id=user.organization_id,
@@ -143,15 +157,18 @@ def detail(identity: UUID, db: DB, user: OptionalUser):
 
 
 @router.post("/events/{identity}/close-registration", response_model=EventOut)
+@demo_preview
 def close(identity: UUID, db: DB, user: Organizer):
     return event_view(db, transition(db, identity, user, "registration_closed"), user)
 
 
 @router.post("/events/{identity}/open-registration", response_model=EventOut)
+@demo_preview
 def reopen(identity: UUID, db: DB, user: Organizer):
     return event_view(db, transition(db, identity, user, "published"), user)
 
 
 @router.post("/events/{identity}/complete", response_model=EventOut)
+@demo_preview
 def complete(identity: UUID, db: DB, user: Organizer):
     return event_view(db, transition(db, identity, user, "completed"), user)

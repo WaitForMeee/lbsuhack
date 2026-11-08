@@ -7,7 +7,7 @@ def test_direct_moderation_visibility_and_retries(client, auth):
     school_id = str(demo_id("org:school2"))
     response = client.post(
         API + "/partnership-requests",
-        headers=auth("company"),
+        headers=auth("writer-company"),
         json=dict(
             visibility="direct",
             target_org_id=school_id,
@@ -19,43 +19,43 @@ def test_direct_moderation_visibility_and_retries(client, auth):
     identity = response.json()["id"]
     path = API + "/partnership-requests/" + identity
     listing = lambda persona: client.get(
-        API + "/partnership-requests", headers=auth(persona)
+        API + "/partnership-requests", headers=auth("writer-" + persona)
     ).json()["items"]
     assert not any(p["id"] == identity for p in listing("school2"))
     assert (
         client.patch(
-            path + "/decision", headers=auth("school2"), json={"decision": "accepted"}
+            path + "/decision", headers=auth("writer-school2"), json={"decision": "accepted"}
         ).status_code
         == 404
     )
     review = API + "/moderation/partnership-requests/" + identity + "/decision"
     assert (
         client.post(
-            review, headers=auth("admin"), json={"decision": "approve"}
+            review, headers=auth("writer-admin"), json={"decision": "approve"}
         ).status_code
         == 200
     )
     assert any(p["id"] == identity for p in listing("school2"))
     assert (
         client.patch(
-            path + "/decision", headers=auth("school"), json={"decision": "accepted"}
+            path + "/decision", headers=auth("writer-school"), json={"decision": "accepted"}
         ).status_code
         == 404
     )
     for _ in range(2):
         r = client.patch(
-            path + "/decision", headers=auth("school2"), json={"decision": "accepted"}
+            path + "/decision", headers=auth("writer-school2"), json={"decision": "accepted"}
         )
         assert r.status_code == 200 and r.json()["direct_decision"] == "accepted"
     assert (
         client.patch(
-            path + "/decision", headers=auth("school2"), json={"decision": "declined"}
+            path + "/decision", headers=auth("writer-school2"), json={"decision": "declined"}
         ).status_code
         == 409
     )
     assert (
         client.post(
-            review, headers=auth("admin"), json={"decision": "reject"}
+            review, headers=auth("writer-admin"), json={"decision": "reject"}
         ).status_code
         == 409
     )
@@ -65,36 +65,36 @@ def test_two_school_responses_and_visibility(client, auth):
     path = API + "/partnership-requests/" + str(demo_id("partnership:market"))
     responses = []
     for school in ("school", "school2"):
-        r = client.post(path + "/responses", headers=auth(school))
+        r = client.post(path + "/responses", headers=auth("writer-" + school))
         assert r.status_code == 201, r.text
         responses.append(r.json())
         assert (
-            client.post(path + "/responses", headers=auth(school)).json()["id"]
+            client.post(path + "/responses", headers=auth("writer-" + school)).json()["id"]
             == r.json()["id"]
         )
     for response in responses:
         route = API + "/partnership-responses/" + response["id"] + "/decision"
         assert (
             client.patch(
-                route, headers=auth("academy"), json={"decision": "accepted"}
+                route, headers=auth("writer-academy"), json={"decision": "accepted"}
             ).status_code
             == 404
         )
         assert (
             client.patch(
-                route, headers=auth("company"), json={"decision": "accepted"}
+                route, headers=auth("writer-company"), json={"decision": "accepted"}
             ).status_code
             == 200
         )
         assert (
             client.patch(
-                route, headers=auth("company"), json={"decision": "accepted"}
+                route, headers=auth("writer-company"), json={"decision": "accepted"}
             ).status_code
             == 200
         )
         assert (
             client.patch(
-                route, headers=auth("company"), json={"decision": "declined"}
+                route, headers=auth("writer-company"), json={"decision": "declined"}
             ).status_code
             == 409
         )
@@ -102,18 +102,18 @@ def test_two_school_responses_and_visibility(client, auth):
         item = next(
             p
             for p in client.get(
-                API + "/partnership-requests", headers=auth(persona)
+                API + "/partnership-requests", headers=auth("writer-" + persona)
             ).json()["items"]
             if p["id"] == str(demo_id("partnership:market"))
         )
         assert len(item["responses"]) == count
     assert (
         client.get(
-            API + "/partnership-requests?view=marketplace", headers=auth("company")
+            API + "/partnership-requests?view=marketplace", headers=auth("writer-company")
         ).status_code
         == 200
     )
-    assert client.post(path + "/responses", headers=auth("company")).status_code == 404
+    assert client.post(path + "/responses", headers=auth("writer-company")).status_code == 404
 
 
 def test_invalid_partnership_directions(client, auth):
@@ -137,7 +137,7 @@ def test_invalid_partnership_directions(client, auth):
         assert (
             client.post(
                 API + "/partnership-requests",
-                headers=auth(persona),
+                headers=auth("writer-" + persona),
                 json={**base, **fields},
             ).status_code
             == 422
@@ -145,7 +145,7 @@ def test_invalid_partnership_directions(client, auth):
     assert (
         client.post(
             API + "/partnership-requests",
-            headers=auth("school"),
+            headers=auth("writer-school"),
             json={
                 **base,
                 "visibility": "direct",
@@ -157,13 +157,13 @@ def test_invalid_partnership_directions(client, auth):
 
 
 def test_queue_achievement_counters_and_access(client, auth):
-    queue = client.get(API + "/moderation/queue", headers=auth("admin")).json()
+    queue = client.get(API + "/moderation/queue", headers=auth("writer-admin")).json()
     assert all(
         queue[key]["items"]
         for key in ("events", "partnership_requests", "achievements")
     )
     assert (
-        client.get(API + "/moderation/queue", headers=auth("company")).status_code
+        client.get(API + "/moderation/queue", headers=auth("writer-company")).status_code
         == 403
     )
     achievement = queue["achievements"]["items"][0]
@@ -171,11 +171,11 @@ def test_queue_achievement_counters_and_access(client, auth):
     for _ in range(2):
         assert (
             client.post(
-                path, headers=auth("admin"), json={"decision": "approve"}
+                path, headers=auth("writer-admin"), json={"decision": "approve"}
             ).status_code
             == 200
         )
-    after = client.get(API + "/moderation/queue", headers=auth("admin")).json()
+    after = client.get(API + "/moderation/queue", headers=auth("writer-admin")).json()
     assert (
         after["achievements"]["decided_count"]
         == queue["achievements"]["decided_count"] + 1
@@ -190,17 +190,17 @@ def test_queue_achievement_counters_and_access(client, auth):
     )
     assert (
         client.post(
-            path, headers=auth("admin"), json={"decision": "reject"}
+            path, headers=auth("writer-admin"), json={"decision": "reject"}
         ).status_code
         == 409
     )
     client.post(
         API + "/events/" + str(demo_id("event:math")) + "/close-registration",
-        headers=auth("school"),
+        headers=auth("writer-school"),
     )
-    final = client.get(API + "/moderation/queue", headers=auth("admin")).json()
+    final = client.get(API + "/moderation/queue", headers=auth("writer-admin")).json()
     assert final["events"]["decided_count"] == queue["events"]["decided_count"]
     for persona in ("school", "company"):
-        r = client.get(API + "/organizations/me/dashboard", headers=auth(persona))
+        r = client.get(API + "/organizations/me/dashboard", headers=auth("writer-" + persona))
         assert r.status_code == 200, r.text
         assert r.json()["counters"]["registrations"] > 0

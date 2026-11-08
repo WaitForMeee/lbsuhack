@@ -32,7 +32,22 @@ def reset_database(migrated_database):
     with SessionLocal.begin() as db:
         for table in reversed(Base.metadata.sorted_tables):
             db.execute(delete(table))
-        seed_demo(db)
+        result = seed_demo(db)
+        from app.core.demo import demo_id
+        from app.models import User
+        from app.services.organizations.credentials import issue_token
+        for key in ("school", "school2", "company", "academy", "admin"):
+            source = db.get(User, demo_id("user:" + key))
+            writer = User(
+                id=demo_id("user:writer-" + key), email="writer-" + source.email,
+                first_name=source.first_name, last_name=source.last_name,
+                password_hash=source.password_hash, role=source.role,
+                organization_id=source.organization_id, credential_version=0,
+            )
+            if source.organization_id:
+                issue_token(writer, "test-writer-" + key)
+            db.add(writer)
+    return result["credentials"]
 
 
 @pytest.fixture
@@ -51,10 +66,12 @@ def auth(client):
     def headers(persona):
         if persona not in cache:
             from app.scripts.seed_demo import DEMO_ORGANIZATION_TOKENS
-            is_org = persona in DEMO_ORGANIZATION_TOKENS
+            tokens = {**DEMO_ORGANIZATION_TOKENS,
+                      **{"writer-" + key: "test-writer-" + key for key in ("school", "school2", "company", "academy")}}
+            is_org = persona in tokens
             response = client.post(
                 "/api/v1/auth/organization-login" if is_org else "/api/v1/auth/login",
-                json={"token": DEMO_ORGANIZATION_TOKENS[persona]} if is_org else {"email": persona + "@demo.by", "password": "demo1234"},
+                json={"token": tokens[persona]} if is_org else {"email": persona + "@demo.by", "password": "demo1234"},
             )
             assert response.status_code == 200, response.text
             cache[persona] = {

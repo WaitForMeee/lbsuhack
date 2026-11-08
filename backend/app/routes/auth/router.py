@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from app.core.demo import demo_preview
 from app.core.errors import fail
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models import StudentProfile, User
@@ -56,6 +57,7 @@ def register(data: Register, db: DB):
 
 
 @router.post("/login", response_model=SessionOut)
+@demo_preview
 def login(data: Login, db: DB):
     user = db.scalar(select(User).where(User.email == str(data.email).lower().strip()))
     if (
@@ -70,6 +72,7 @@ def login(data: Login, db: DB):
 
 
 @router.post("/organization-login", response_model=SessionOut)
+@demo_preview
 def organization_login(data: OrganizationLogin, db: DB):
     user = db.scalar(select(User).where(User.organization_token_hash == token_hash(data.token)).with_for_update())
     if user is None or not user.is_active or user.role not in ("school", "company") or (data.expected_role and user.role != data.expected_role):

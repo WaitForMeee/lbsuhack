@@ -58,7 +58,7 @@ def test_seed_repeatable_preserves_passwords_profile_and_decisions():
             db.get(ParentChild, (demo_id("user:olga"), demo_id("user:alina")))
             is not None
         )
-        assert db.scalar(select(func.count()).select_from(ParentChild)) == 2
+        assert db.scalar(select(func.count()).select_from(ParentChild)) == 3
         assert {n.type for n in db.scalars(select(Notification))} == {
             "confirmation",
             "interest",
@@ -94,8 +94,8 @@ def test_explicit_reset_restores_demo_and_preserves_unrelated_account():
             db.get(ParentChild, (demo_id("user:olga"), demo_id("user:alina")))
             is not None
         )
-        assert db.scalar(select(func.count()).select_from(ParentChild)) == 1
-        assert db.scalar(select(func.count()).select_from(Event)) == 17
+        assert db.scalar(select(func.count()).select_from(ParentChild)) == 2
+        assert db.scalar(select(func.count()).select_from(Event)) == 23
 
 
 def test_seed_school_marketplace_is_actionable_and_preserves_responses(client, auth):
@@ -107,7 +107,7 @@ def test_seed_school_marketplace_is_actionable_and_preserves_responses(client, a
     }
     for persona in ("company", "academy"):
         market = client.get(
-            "/api/v1/partnership-requests?view=marketplace", headers=auth(persona)
+            "/api/v1/partnership-requests?view=marketplace", headers=auth("writer-" + persona)
         )
         assert market.status_code == 200
         cards = [p for p in market.json()["items"] if p["id"] in expected]
@@ -120,14 +120,14 @@ def test_seed_school_marketplace_is_actionable_and_preserves_responses(client, a
         )
     identity = str(demo_id("partnership:school-market-mentors"))
     response = client.post(
-        f"/api/v1/partnership-requests/{identity}/responses", headers=auth("company")
+        f"/api/v1/partnership-requests/{identity}/responses", headers=auth("writer-company")
     )
     assert response.status_code == 201
     response_id = response.json()["id"]
     assert (
         client.patch(
             f"/api/v1/partnership-responses/{response_id}/decision",
-            headers=auth("school"),
+            headers=auth("writer-school"),
             json={"decision": "accepted"},
         ).status_code
         == 200
@@ -141,7 +141,7 @@ def test_seed_school_marketplace_is_actionable_and_preserves_responses(client, a
                 .select_from(PartnershipRequest)
                 .where(PartnershipRequest.visibility == "all_companies")
             )
-            == 2
+            == 3
         )
         assert (
             db.scalar(

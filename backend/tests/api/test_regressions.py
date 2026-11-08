@@ -37,7 +37,7 @@ def test_decision_notifications_repeat_and_reapplication_cycle(client, auth):
         assert (
             client.patch(
                 path + "/decision",
-                headers=auth("company"),
+                headers=auth("writer-company"),
                 json={"decision": "approved"},
             ).status_code
             == 200
@@ -49,7 +49,7 @@ def test_decision_notifications_repeat_and_reapplication_cycle(client, auth):
     )
     assert (
         client.patch(
-            path + "/decision", headers=auth("company"), json={"decision": "rejected"}
+            path + "/decision", headers=auth("writer-company"), json={"decision": "rejected"}
         ).status_code
         == 200
     )

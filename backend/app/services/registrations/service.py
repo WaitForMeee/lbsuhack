@@ -1,3 +1,4 @@
+from app.core.demo import preview_only
 from sqlalchemy import func, select
 
 from app.core.errors import fail
@@ -74,6 +75,8 @@ def decide_registration(db, identity, user, decision):
         )
         if count >= e.capacity:
             fail(409, "capacity_exhausted", "Свободных мест нет")
+    if preview_only(user):
+        return r
     r.status = decision
     # A new submission cycle after cancellation gets its own decision notification.
     key = f"decision:{r.id}:{r.updated_at.isoformat()}:{decision}"
@@ -111,6 +114,8 @@ def attend(db, identity, user):
             "attendance_unavailable",
             "Посещение доступно подтверждённому участнику",
         )
+    if preview_only(user):
+        return r
     if r.attended_at is None:
         r.attended_at = now()
         db.commit()

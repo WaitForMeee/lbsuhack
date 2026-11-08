@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Response
 from sqlalchemy import select
 
+from app.core.demo import demo_preview
 from app.models import EventRegistration, StudentProfile, User
 from app.routes.shared.dependencies import DB, Organizer, Student
 from app.schemas.registrations.requests import RegistrationDecision
@@ -68,10 +69,12 @@ def participants(identity: UUID, db: DB, user: Organizer):
 
 
 @router.patch("/registrations/{identity}/decision", response_model=RegistrationOut)
+@demo_preview
 def decide(identity: UUID, data: RegistrationDecision, db: DB, user: Organizer):
     return registration_view(db, decide_registration(db, identity, user, data.decision))
 
 
 @router.put("/registrations/{identity}/attendance", response_model=RegistrationOut)
+@demo_preview
 def attendance(identity: UUID, db: DB, user: Organizer):
     return registration_view(db, attend(db, identity, user))

@@ -44,7 +44,7 @@ def test_migration_upgrade_seed_repeat_and_downgrade(tmp_path):
         )
         assert seed.returncode == 0, seed.stderr
     with migrated.connect() as conn:
-        assert conn.scalar(text("SELECT COUNT(*) FROM users")) == 11
+        assert conn.scalar(text("SELECT COUNT(*) FROM users")) == 17
     # Public school offers belong to v2.2 and cannot be downgraded to v2.1.
     with migrated.begin() as conn:
         conn.execute(
@@ -115,6 +115,10 @@ def test_upgrade_preserves_parent_link_and_existing_partnership_response(tmp_pat
     )
     assert seed.returncode == 0, seed.stderr
     with create_engine(f"sqlite+pysqlite:///{path}").begin() as connection:
+        connection.execute(text(
+            "DELETE FROM partnership_responses WHERE request_id IN "
+            "(SELECT id FROM partnership_requests WHERE visibility='all_companies')"
+        ))
         connection.execute(
             text("DELETE FROM partnership_requests WHERE visibility='all_companies'")
         )
@@ -139,9 +143,10 @@ def test_upgrade_preserves_parent_link_and_existing_partnership_response(tmp_pat
     result = alembic(path, "upgrade", "head")
     assert result.returncode == 0, result.stderr
     with db.connect() as connection:
-        assert connection.scalar(text("SELECT COUNT(*) FROM parent_children")) == 1
+        assert connection.scalar(text("SELECT COUNT(*) FROM parent_children")) == 2
         assert connection.scalar(
-            text("SELECT responder_org_id FROM partnership_responses")
+            text("SELECT responder_org_id FROM partnership_responses WHERE id=:identity"),
+            {"identity": id("response:existing")}
         ) == id("org:school")
         assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
     assert alembic(path, "check").returncode == 0

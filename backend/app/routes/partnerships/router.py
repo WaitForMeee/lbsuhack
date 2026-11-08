@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter
 
+from app.core.demo import demo_preview
 from app.routes.shared.dependencies import DB, Organizer
 from app.schemas.partnerships.requests import PartnerDecision, PartnershipCreate
 from app.schemas.partnerships.responses import PartnershipOut, PartnershipResponseOut
@@ -27,6 +28,7 @@ def listing(db: DB, user: Organizer, view: Literal["mine", "marketplace"] = "min
 
 
 @router.post("/partnership-requests", status_code=201, response_model=PartnershipOut)
+@demo_preview
 def create(data: PartnershipCreate, db: DB, user: Organizer):
     return partnership_view(db, create_request(db, user, data), user)
 
@@ -34,6 +36,7 @@ def create(data: PartnershipCreate, db: DB, user: Organizer):
 @router.patch(
     "/partnership-requests/{identity}/decision", response_model=PartnershipOut
 )
+@demo_preview
 def decide(identity: UUID, data: PartnerDecision, db: DB, user: Organizer):
     return partnership_view(
         db, direct_decision(db, identity, user, data.decision), user
@@ -45,6 +48,7 @@ def decide(identity: UUID, data: PartnerDecision, db: DB, user: Organizer):
     status_code=201,
     response_model=PartnershipResponseOut,
 )
+@demo_preview
 def response(identity: UUID, db: DB, user: Organizer):
     return response_view(db, respond(db, identity, user))
 
@@ -52,5 +56,6 @@ def response(identity: UUID, db: DB, user: Organizer):
 @router.patch(
     "/partnership-responses/{identity}/decision", response_model=PartnershipResponseOut
 )
+@demo_preview
 def response_decision(identity: UUID, data: PartnerDecision, db: DB, user: Organizer):
     return response_view(db, decide_response(db, identity, user, data.decision))

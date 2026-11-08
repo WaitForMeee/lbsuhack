@@ -56,7 +56,7 @@ def test_invitation_permissions_and_token_purposes(client, auth):
 
 @pytest.mark.parametrize("kind,role", [("school", "school"), ("company", "company"), ("academy", "company")])
 def test_moderator_create_login_rotate_and_preserve_seed(client, auth, kind, role):
-    moderator = auth("admin")
+    moderator = auth("writer-admin")
     payload = dict(organization=dict(kind=kind, name="Новая организация", city="Минск"), first_name="Иван", last_name="Иванов", email="created@example.org")
     created = client.post(API + "/moderation/organization-accounts", headers=moderator, json=payload)
     assert created.status_code == 201, created.text
@@ -92,7 +92,7 @@ def test_account_permissions_atomic_creation_and_existing_organization(client, a
         assert client.get(path, headers=auth(who)).status_code == 403
         assert client.post(path, json=payload, headers=auth(who)).status_code == 403
         assert client.post(path + f"/{demo_id('user:school')}/token", headers=auth(who)).status_code == 403
-    moderator = auth("admin")
+    moderator = auth("writer-admin")
     assert client.post(path, json=payload, headers=moderator).status_code == 409
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Organization).where(Organization.name == "Не создавать")) == 0
@@ -109,7 +109,7 @@ def test_account_permissions_atomic_creation_and_existing_organization(client, a
 
 
 def test_demo_seed_preserves_rotated_credentials_and_cors_delete(client, auth):
-    rotated = client.post(API + f"/moderation/organization-accounts/{demo_id('user:school')}/token", headers=auth("admin"))
+    rotated = client.post(API + f"/moderation/organization-accounts/{demo_id('user:school')}/token", headers=auth("writer-admin"))
     assert rotated.status_code == 200
     token = rotated.json()["token"]
     assert rotated.headers["cache-control"] == "no-store"

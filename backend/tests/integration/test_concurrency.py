@@ -31,7 +31,7 @@ def test_last_place_is_serialized():
 
     def decide(identity):
         with SessionLocal() as db:
-            owner = db.get(User, demo_id("user:company"))
+            owner = db.get(User, demo_id("user:writer-company"))
             barrier.wait(timeout=10)
             try:
                 decide_registration(db, identity, owner, "approved")
@@ -74,7 +74,7 @@ def test_concurrent_apply_and_response_are_unique():
             with SessionLocal() as db:
                 user = db.get(
                     User,
-                    demo_id("user:alina" if operation == "apply" else "user:school"),
+                    demo_id("user:alina" if operation == "apply" else "user:writer-school"),
                 )
                 barrier.wait(timeout=10)
                 if operation == "apply":

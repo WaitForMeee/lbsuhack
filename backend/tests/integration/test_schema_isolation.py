@@ -62,7 +62,7 @@ def test_legacy_revision_and_rows_survive_new_schema_migration_and_seed():
                 connection.scalar(text("SELECT version_num FROM alembic_version"))
                 == "20261107_0004"
             )
-            assert connection.scalar(text("SELECT count(*) FROM users")) == 11
+            assert connection.scalar(text("SELECT count(*) FROM users")) == 17
         with old_engine.connect() as connection:
             assert (
                 connection.scalar(text("SELECT version_num FROM alembic_version"))

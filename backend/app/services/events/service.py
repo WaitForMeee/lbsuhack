@@ -1,3 +1,4 @@
+from app.core.demo import preview_only
 from app.core.errors import fail
 from app.models import (
     Event,
@@ -26,6 +27,8 @@ def transition(db, identity, user, target):
         fail(409, "event_state_conflict", "Недопустимый переход состояния")
     if target == "published" and e.registration_deadline < today():
         fail(409, "deadline_expired", "Дедлайн регистрации истёк")
+    if preview_only(user):
+        return e
     e.status = target
     db.commit()
     return e

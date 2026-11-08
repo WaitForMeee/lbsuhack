@@ -84,7 +84,7 @@ def test_public_school_offer_is_moderated_and_company_responses_are_independent(
 ):
     created = client.post(
         API + "/partnership-requests",
-        headers=auth("school"),
+        headers=auth("writer-school"),
         json=dict(
             visibility="all_companies",
             title="Нужны наставники",
@@ -94,13 +94,13 @@ def test_public_school_offer_is_moderated_and_company_responses_are_independent(
     assert created.status_code == 201, created.text
     identity = created.json()["id"]
     market = lambda: client.get(
-        API + "/partnership-requests?view=marketplace", headers=auth("company")
+        API + "/partnership-requests?view=marketplace", headers=auth("writer-company")
     ).json()["items"]
     assert all(p["id"] != identity for p in market())
     assert (
         client.post(
             API + f"/moderation/partnership-requests/{identity}/decision",
-            headers=auth("admin"),
+            headers=auth("writer-admin"),
             json={"decision": "approve"},
         ).status_code
         == 200
@@ -108,7 +108,7 @@ def test_public_school_offer_is_moderated_and_company_responses_are_independent(
     assert any(p["id"] == identity for p in market())
     for persona in ("company", "academy"):
         row = client.post(
-            API + f"/partnership-requests/{identity}/responses", headers=auth(persona)
+            API + f"/partnership-requests/{identity}/responses", headers=auth("writer-" + persona)
         )
         assert row.status_code == 201, row.text
         assert row.json()["organization"]["kind"] in ("company", "academy")
@@ -117,7 +117,7 @@ def test_public_school_offer_is_moderated_and_company_responses_are_independent(
         assert (
             client.patch(
                 API + f"/partnership-responses/{response_id}/decision",
-                headers=auth("school2"),
+                headers=auth("writer-school2"),
                 json={"decision": "accepted"},
             ).status_code
             == 404
@@ -125,14 +125,14 @@ def test_public_school_offer_is_moderated_and_company_responses_are_independent(
         assert (
             client.patch(
                 API + f"/partnership-responses/{response_id}/decision",
-                headers=auth("school"),
+                headers=auth("writer-school"),
                 json={"decision": "accepted"},
             ).status_code
             == 200
         )
     assert (
         client.post(
-            API + f"/partnership-requests/{identity}/responses", headers=auth("school2")
+            API + f"/partnership-requests/{identity}/responses", headers=auth("writer-school2")
         ).status_code
         == 404
     )
@@ -149,12 +149,12 @@ def test_school_directory_counts_only_confirmed_achievements_by_event(client, au
     # A new attendance alone must not turn into an achievement or inflate the ranking.
     registration = str(demo_id("registration:math"))
     client.put(
-        API + f"/registrations/{registration}/attendance", headers=auth("school")
+        API + f"/registrations/{registration}/attendance", headers=auth("writer-school")
     )
     assert sum(i["count"] for i in school()["indicators"]) == 1
     assert all("first_name" not in str(row) for row in directory())
     roster = client.get(
-        API + "/organizations/me/students", headers=auth("school")
+        API + "/organizations/me/students", headers=auth("writer-school")
     ).json()["items"]
     student = next(s for s in roster if s["id"] == str(demo_id("user:alina")))
     assert student["application_count"] == len(student["applications"])

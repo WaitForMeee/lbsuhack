@@ -34,13 +34,13 @@ def test_onboarding_custom_interests_and_school_transfer(client, auth):
     assert any(
         s["id"] == r.json()["id"]
         for s in client.get(
-            API + "/organizations/me/students", headers=auth("school")
+            API + "/organizations/me/students", headers=auth("writer-school")
         ).json()["items"]
     )
     assert not any(
         s["id"] == r.json()["id"]
         for s in client.get(
-            API + "/organizations/me/students", headers=auth("school2")
+            API + "/organizations/me/students", headers=auth("writer-school2")
         ).json()["items"]
     )
     assert "3D моделирование" not in [
@@ -61,14 +61,14 @@ def test_onboarding_custom_interests_and_school_transfer(client, auth):
     assert client.get(API + "/students/me").status_code == 401
     assert (
         client.get(
-            API + "/organizations/me/students", headers=auth("company")
+            API + "/organizations/me/students", headers=auth("writer-company")
         ).status_code
         == 403
     )
     assert (
         client.get(
             API + "/organizations/me/students",
-            headers=auth("school"),
+            headers=auth("writer-school"),
             params={"q": "Марк"},
         ).json()["items"][0]["id"]
         == r.json()["id"]

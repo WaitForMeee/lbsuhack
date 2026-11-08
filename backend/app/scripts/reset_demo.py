@@ -21,6 +21,7 @@ from app.models import (
     student_interests,
 )
 from app.scripts.seed_demo import demo_id, seed_demo
+from app.scripts.presenter_demo import PRESENTER_ORGS, PRESENTER_USERS, print_credentials
 
 
 def reset_demo(db):
@@ -48,6 +49,15 @@ def reset_demo(db):
         "maria",
         "timofey",
     ]
+    org_keys.extend(PRESENTER_ORGS)
+    user_keys.extend(PRESENTER_USERS)
+    credentials = {}
+    for key in user_keys:
+        user = db.get(User, demo_id("user:" + key))
+        if user is not None:
+            credentials[key] = {field: getattr(user, field) for field in (
+                "email", "password_hash", "organization_token_hash", "credential_version"
+            )}
     org_ids = [demo_id("org:" + key) for key in org_keys]
     user_ids = [demo_id("user:" + key) for key in user_keys]
     # Custom accounts may have joined a demo school. Preserve them and the organization.
@@ -121,7 +131,7 @@ def reset_demo(db):
     db.execute(delete(StudentProfile).where(StudentProfile.user_id.in_(user_ids)))
     db.execute(delete(User).where(User.id.in_(user_ids)))
     db.expire_all()
-    return seed_demo(db)
+    return seed_demo(db, credential_overrides=credentials)
 
 
 def main():
@@ -131,7 +141,9 @@ def main():
     parser.add_argument("--confirm-reset", action="store_true", required=True)
     parser.parse_args()
     with SessionLocal.begin() as db:
-        print(reset_demo(db))
+        result = reset_demo(db)
+    print({key: value for key, value in result.items() if key != "credentials"})
+    print_credentials(result["credentials"])
 
 
 if __name__ == "__main__":

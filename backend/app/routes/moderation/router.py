@@ -1,8 +1,9 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter
 from sqlalchemy import func, select
 
+from app.core.demo import demo_preview, preview_only
 from app.core.errors import fail
 from app.models import Achievement, Event, PartnershipRequest, StudentProfile, User, Organization
 from sqlalchemy.exc import IntegrityError
@@ -22,6 +23,7 @@ from app.services.notifications.service import notify
 from app.services.partnerships.views import partnership_view
 from app.services.shared.repository import get
 from app.services.students.views import profile_view
+from app.services.users.views import user_view
 
 router = APIRouter(prefix="/moderation", tags=["moderation"])
 
@@ -33,10 +35,25 @@ def organization_accounts(db: DB, user: Moderator):
 
 
 @router.post("/organization-accounts", response_model=OrganizationCredentialOut, status_code=201)
+@demo_preview
 def create_organization_account(data: OrganizationAccountCreate, db: DB, user: Moderator):
     organization = db.get(Organization, data.organization_id) if data.organization_id else None
     if data.organization_id and organization is None:
         fail(422, "invalid_organization", "Организация не найдена")
+    if preview_only(user):
+        if db.scalar(select(User.id).where(User.email == str(data.email).lower().strip())) is not None:
+            fail(409, "email_taken", "Email уже занят")
+        organization = organization or Organization(
+            **data.organization.model_dump(), id=uuid4(), description="", directions=[]
+        )
+        account = User(
+            id=uuid4(), email=str(data.email).lower().strip(),
+            first_name=data.first_name, last_name=data.last_name,
+            role="school" if organization.kind == "school" else "company",
+            organization_id=organization.id,
+        )
+        return {"account": {"user": user_view(db, account), "organization": organization,
+                            "has_token": True}, "token": "th_preview_" + secrets.token_urlsafe(32)}
     try:
         if organization is None:
             organization = Organization(**data.organization.model_dump())
@@ -59,10 +76,13 @@ def create_organization_account(data: OrganizationAccountCreate, db: DB, user: M
 
 
 @router.post("/organization-accounts/{identity}/token", response_model=OrganizationCredentialOut)
+@demo_preview
 def rotate_organization_token(identity: UUID, db: DB, user: Moderator):
     account = db.scalar(select(User).where(User.id == identity, User.role.in_(["school", "company"])).with_for_update())
     if account is None:
         fail(404, "not_found", "Аккаунт организации не найден")
+    if preview_only(user):
+        return {"account": account_view(db, account), "token": "th_preview_" + secrets.token_urlsafe(32)}
     token = issue_token(account)
     db.commit()
     return {"account": account_view(db, account), "token": token}
@@ -132,6 +152,8 @@ def review(db, model, identity, user, decision):
         fail(409, "decision_conflict", "Решение модератора уже принято")
     if getattr(row, field) != "pending":
         fail(409, "decision_conflict", "Запись уже рассмотрена")
+    if preview_only(user):
+        return row
     setattr(row, field, target)
     row.reviewed_by = user.id
     row.reviewed_at = now()
@@ -153,11 +175,13 @@ def review(db, model, identity, user, decision):
 
 
 @router.post("/events/{identity}/decision", response_model=EventOut)
+@demo_preview
 def event_decision(identity: UUID, data: ModerationDecision, db: DB, user: Moderator):
     return event_view(db, review(db, Event, identity, user, data.decision), user)
 
 
 @router.post("/partnership-requests/{identity}/decision", response_model=PartnershipOut)
+@demo_preview
 def partnership_decision(
     identity: UUID, data: ModerationDecision, db: DB, user: Moderator
 ):
@@ -167,6 +191,7 @@ def partnership_decision(
 
 
 @router.post("/achievements/{identity}/decision", response_model=AchievementReview)
+@demo_preview
 def achievement_decision(
     identity: UUID, data: ModerationDecision, db: DB, user: Moderator
 ):

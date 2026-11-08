@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -19,12 +19,14 @@ from app.routes import (
     family_invitations,
 )
 from app.schemas.shared.errors import ErrorOut
+from app.routes.shared.dependencies import enforce_demo_write_policy
 
 
 def create_app():
     settings = get_settings()
     app = FastAPI(
         title=settings.app_name,
+        dependencies=[Depends(enforce_demo_write_policy)],
         version="2.0.0",
         description="TalentHub API for an independently deployed frontend. Bearer sessions expire in eight hours.",
         responses={code: {"model": ErrorOut} for code in (401, 403, 404, 409, 422)},

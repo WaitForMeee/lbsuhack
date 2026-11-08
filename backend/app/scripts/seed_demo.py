@@ -2,10 +2,10 @@
 
 import hashlib
 from datetime import date, timedelta
-from uuid import NAMESPACE_URL, uuid5
 
 from sqlalchemy import select
 
+from app.core.demo import demo_id
 from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.models import (
@@ -42,10 +42,6 @@ INTERESTS = [
 ]
 
 
-def demo_id(key):
-    return uuid5(NAMESPACE_URL, "talenthub:v2:demo:" + key)
-
-
 def insert(db, model, key, **values):
     identity = demo_id(key)
     row = db.get(model, identity)
@@ -56,10 +52,11 @@ def insert(db, model, key, **values):
     return row
 
 
-def seed_demo(db=None):
+def seed_demo(db=None, *, credential_overrides=None):
     if db is None:
         with SessionLocal.begin() as session:
-            return seed_demo(session)
+            return seed_demo(session, credential_overrides=credential_overrides)
+    credential_overrides = credential_overrides or {}
     stamp = today()
     orgs = {}
     for key, kind, name, city in [
@@ -116,17 +113,13 @@ def seed_demo(db=None):
     for key, role, first, last, org in personas:
         if db.get(User, demo_id("user:" + key)) is None and password_hash is None:
             password_hash = hash_password(PASSWORD)
-        users[key] = insert(
-            db,
-            User,
-            "user:" + key,
-            email=key + "@demo.by",
-            password_hash=password_hash or "",
-            first_name=first,
-            last_name=last,
-            role=role,
+        values = dict(
+            email=key + "@demo.by", password_hash=password_hash or "",
+            first_name=first, last_name=last, role=role,
             organization_id=orgs[org].id if org else None,
         )
+        values.update(credential_overrides.get(key, {}))
+        users[key] = insert(db, User, "user:" + key, **values)
         if org and users[key].organization_token_hash is None:
             issue_token(users[key], DEMO_ORGANIZATION_TOKENS[key])
     for key, birthday, org, grade, names in [
@@ -494,11 +487,17 @@ def seed_demo(db=None):
             read_at=now() if read else None,
         )
     db.flush()
-    return {"organizations": len(orgs), "users": len(users), "events": len(events)}
+    from app.scripts.presenter_demo import seed_presenter
+    credentials = seed_presenter(db, credential_overrides=credential_overrides)
+    return {"organizations": len(orgs) + 2, "users": len(users) + 6,
+            "events": len(events) + 6, "credentials": credentials}
 
 
 def main():
-    print(seed_demo())
+    from app.scripts.presenter_demo import print_credentials
+    result = seed_demo()
+    print({key: value for key, value in result.items() if key != "credentials"})
+    print_credentials(result["credentials"])
 
 
 if __name__ == "__main__":
