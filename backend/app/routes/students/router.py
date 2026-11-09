@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from app.routes.shared.router import APIRouter
 
 from app.models import StudentProfile
 from app.routes.shared.dependencies import DB, Student

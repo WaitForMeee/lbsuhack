@@ -4,7 +4,7 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.core.demo import preview_only
+from app.core.demo import preview_only, DemoRestricted
 from app.core.errors import fail
 from app.core.security import decode_access_claims
 from uuid import UUID
@@ -34,6 +34,7 @@ def optional_user(
         fail(401, "invalid_token", "Недействительный токен")
     if user.role in ("school", "company") and claims.get("credential_version") != user.credential_version:
         fail(401, "invalid_token", "Доступ перевыпущен. Войдите с новым токеном")
+    request.state.demo_read_only = preview_only(user)
     return user
 
 
@@ -53,6 +54,7 @@ def roles(*allowed):
                 fail(403, "invalid_organization", "Неверная организация представителя")
         return user
 
+    dependency.allowed_roles = allowed
     return dependency
 
 
@@ -68,5 +70,18 @@ OptionalUser = Annotated[User | None, Depends(optional_user)]
 def enforce_demo_write_policy(request: Request, user: OptionalUser):
     if user is None or not preview_only(user) or request.method in {"GET", "HEAD", "OPTIONS"}:
         return
+    # Preserve role errors before reporting a demo limitation on known routes.
+    def role_constraints(dependant):
+        allowed = getattr(dependant.call, "allowed_roles", None)
+        if allowed is not None:
+            yield allowed
+        for child in dependant.dependencies:
+            yield from role_constraints(child)
+    route = request.scope.get("route")
+    if route is not None and hasattr(route, "dependant"):
+        if any(user.role not in allowed for allowed in role_constraints(route.dependant)):
+            return
+    if "/auth/" in request.url.path:
+        return
     if not getattr(request.scope.get("endpoint"), "demo_preview", False):
-        fail(403, "demo_read_only", "Демо-аккаунт доступен только для просмотра")
+        raise DemoRestricted()

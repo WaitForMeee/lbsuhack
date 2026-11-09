@@ -1,7 +1,8 @@
+from app.routes.shared.router import APIRouter
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import Query
 from sqlalchemy import select
 
 from app.core.errors import fail

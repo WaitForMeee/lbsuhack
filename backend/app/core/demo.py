@@ -21,3 +21,7 @@ def demo_preview(endpoint):
     """Opt a write endpoint into its explicitly implemented preview behavior."""
     endpoint.demo_preview = True
     return endpoint
+
+
+class DemoRestricted(Exception):
+    """A validated action is unavailable in the public demo."""

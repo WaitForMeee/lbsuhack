@@ -1,6 +1,6 @@
+from app.routes.shared.router import APIRouter
 from uuid import UUID
 
-from fastapi import APIRouter
 from sqlalchemy import select
 
 from app.core.errors import fail

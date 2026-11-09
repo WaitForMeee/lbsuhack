@@ -1,5 +1,4 @@
-from uuid import uuid4
-from app.core.demo import preview_only
+from app.core.demo import DemoRestricted, preview_only
 from sqlalchemy import select
 
 from app.core.errors import fail
@@ -69,8 +68,7 @@ def create_request(db, user, data):
         fail(422, "invalid_partnership_target", "Недопустимое направление запроса")
     p = PartnershipRequest(**data.model_dump(), sender_org_id=user.organization_id)
     if preview_only(user):
-        p.id, p.created_at, p.moderation_status = uuid4(), now(), "pending"
-        return p
+        raise DemoRestricted()
     db.add(p)
     db.commit()
     return p
@@ -89,7 +87,7 @@ def direct_decision(db, identity, user, decision):
     if p.direct_decision is not None:
         fail(409, "decision_conflict", "Решение уже принято")
     if preview_only(user):
-        return p
+        raise DemoRestricted()
     p.direct_decision = decision
     db.commit()
     return p
@@ -111,8 +109,7 @@ def respond(db, identity, user):
             request_id=p.id, responder_org_id=user.organization_id
         )
         if preview_only(user):
-            row.id, row.created_at, row.status = uuid4(), now(), "pending"
-            return row
+            raise DemoRestricted()
         db.add(row)
         db.commit()
     return row
@@ -128,7 +125,7 @@ def decide_response(db, identity, user, decision):
     if r.status != "pending":
         fail(409, "decision_conflict", "Решение уже принято")
     if preview_only(user):
-        return r
+        raise DemoRestricted()
     r.status = decision
     r.decided_at = now()
     db.commit()

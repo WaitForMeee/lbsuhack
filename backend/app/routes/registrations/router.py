@@ -1,6 +1,7 @@
+from app.routes.shared.router import APIRouter
 from uuid import UUID
 
-from fastapi import APIRouter, Response
+from fastapi import Response
 from sqlalchemy import select
 
 from app.core.demo import demo_preview

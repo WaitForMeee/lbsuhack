@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
+from app.core.demo import DemoRestricted
+from app.routes.shared.router import MutationRoute
 from app.core.config import get_settings
 from app.routes import (
     auth,
@@ -31,6 +33,12 @@ def create_app():
         description="TalentHub API for an independently deployed frontend. Bearer sessions expire in eight hours.",
         responses={code: {"model": ErrorOut} for code in (401, 403, 404, 409, 422)},
     )
+    app.router.route_class = MutationRoute
+
+    @app.exception_handler(DemoRestricted)
+    async def demo_restricted(request, exc):
+        return JSONResponse({"demo_mode": True})
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
@@ -98,6 +106,28 @@ def create_app():
         moderation,
     ):
         app.include_router(module.router, prefix=settings.api_prefix)
+    original_openapi = app.openapi
+    def mutation_openapi():
+        schema = original_openapi()
+        blocked = {"type": "object", "properties": {"demo_mode": {"type": "boolean", "const": True}}, "required": ["demo_mode"], "additionalProperties": False}
+        for path, operations in schema["paths"].items():
+            if path.startswith(settings.api_prefix + "/auth/"):
+                continue
+            for method, operation in operations.items():
+                if method not in {"post", "patch", "put", "delete"}:
+                    continue
+                responses = operation["responses"]
+                for status, response in responses.items():
+                    if status.startswith("2"):
+                        content = response.get("content", {}).get("application/json", {})
+                        existing = content.get("schema", {})
+                        content["schema"] = {"allOf": [existing, {"type": "object", "properties": {"demo_mode": {"type": "boolean", "const": False}}, "required": ["demo_mode"]}]}
+                success = responses.setdefault("200", {"description": "Demo action unavailable", "content": {"application/json": {}}})
+                content = success.setdefault("content", {}).setdefault("application/json", {})
+                content["schema"] = {"anyOf": [content["schema"], blocked]} if "schema" in content else blocked
+        app.openapi = lambda: schema
+        return schema
+    app.openapi = mutation_openapi
     return app
 
 

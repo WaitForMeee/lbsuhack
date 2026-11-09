@@ -1,9 +1,9 @@
-from uuid import UUID, uuid4
+from app.routes.shared.router import APIRouter
+from uuid import UUID
 
-from fastapi import APIRouter
 from sqlalchemy import func, select
 
-from app.core.demo import demo_preview, preview_only
+from app.core.demo import DemoRestricted, demo_preview, preview_only
 from app.core.errors import fail
 from app.models import Achievement, Event, PartnershipRequest, StudentProfile, User, Organization
 from sqlalchemy.exc import IntegrityError
@@ -43,17 +43,7 @@ def create_organization_account(data: OrganizationAccountCreate, db: DB, user: M
     if preview_only(user):
         if db.scalar(select(User.id).where(User.email == str(data.email).lower().strip())) is not None:
             fail(409, "email_taken", "Email уже занят")
-        organization = organization or Organization(
-            **data.organization.model_dump(), id=uuid4(), description="", directions=[]
-        )
-        account = User(
-            id=uuid4(), email=str(data.email).lower().strip(),
-            first_name=data.first_name, last_name=data.last_name,
-            role="school" if organization.kind == "school" else "company",
-            organization_id=organization.id,
-        )
-        return {"account": {"user": user_view(db, account), "organization": organization,
-                            "has_token": True}, "token": "th_preview_" + secrets.token_urlsafe(32)}
+        raise DemoRestricted()
     try:
         if organization is None:
             organization = Organization(**data.organization.model_dump())
@@ -82,7 +72,7 @@ def rotate_organization_token(identity: UUID, db: DB, user: Moderator):
     if account is None:
         fail(404, "not_found", "Аккаунт организации не найден")
     if preview_only(user):
-        return {"account": account_view(db, account), "token": "th_preview_" + secrets.token_urlsafe(32)}
+        raise DemoRestricted()
     token = issue_token(account)
     db.commit()
     return {"account": account_view(db, account), "token": token}
@@ -153,7 +143,7 @@ def review(db, model, identity, user, decision):
     if getattr(row, field) != "pending":
         fail(409, "decision_conflict", "Запись уже рассмотрена")
     if preview_only(user):
-        return row
+        raise DemoRestricted()
     setattr(row, field, target)
     row.reviewed_by = user.id
     row.reviewed_at = now()

@@ -58,58 +58,24 @@ def test_organizer_writes_are_contract_valid_and_leave_entire_database_unchanged
         inbound_id, market_id, response_id = inbound.id, market.id, response.id
     headers = auth(persona)
     before = snapshot()
-    create = client.post(API + "/events", headers=headers,
-                         json={**payload(), "interests": ["Совершенно новое направление"]})
-    assert create.status_code == 201, create.text
-    EventOut.model_validate(create.json())
-    assert client.get(API + "/events/" + create.json()["id"], headers=headers).status_code == 404
-    for identity, action, status in (
-        (event_id, "close-registration", "published"),
-        (closed_id, "open-registration", "registration_closed"),
-        (event_id, "complete", "published"),
-    ):
-        result = client.post(API + f"/events/{identity}/{action}", headers=headers)
-        assert result.status_code == 200, result.text
-        EventOut.model_validate(result.json())
-        assert result.json()["status"] == status
-    for decision in ("approved", "rejected"):
-        result = client.patch(API + f"/registrations/{sub_id}/decision", headers=headers,
-                              json={"decision": decision})
-        assert result.status_code == 200, result.text
-        RegistrationOut.model_validate(result.json())
-        assert result.json()["status"] == "submitted"
-    result = client.put(API + f"/registrations/{app_id}/attendance", headers=headers)
-    assert result.status_code == 200, result.text
-    RegistrationOut.model_validate(result.json())
-    assert result.json()["attended_at"] is None
-    created = client.post(API + "/partnership-requests", headers=headers,
-                          json=dict(visibility="direct", target_org_id=str(other),
-                                    title="Новая программа", description="Описание"))
-    assert created.status_code == 201, created.text
-    PartnershipOut.model_validate(created.json())
-    result = client.patch(API + f"/partnership-requests/{inbound_id}/decision", headers=headers,
-                          json={"decision": "accepted"})
-    assert result.status_code == 200, result.text
-    assert result.json()["direct_decision"] is None
-    result = client.post(API + f"/partnership-requests/{market_id}/responses", headers=headers)
-    assert result.status_code == 201, result.text
-    PartnershipResponseOut.model_validate(result.json())
-    with SessionLocal() as db:
-        assert db.get(PartnershipResponse, UUID(result.json()["id"])) is None
-    result = client.patch(API + f"/partnership-responses/{response_id}/decision", headers=headers,
-                          json={"decision": "accepted"})
-    assert result.status_code == 200, result.text
-    assert result.json()["status"] == "pending"
-    assert snapshot() == before
-    with SessionLocal.begin() as db:
-        existing = PartnershipResponse(request_id=market_id, responder_org_id=user.organization_id,
-                                       status="pending")
-        db.add(existing)
-        db.flush()
-        existing_id = str(existing.id)
-    before = snapshot()
-    repeated = client.post(API + f"/partnership-requests/{market_id}/responses", headers=headers)
-    assert repeated.status_code == 201 and repeated.json()["id"] == existing_id
+    operations = [
+        ("post", "/events", {**payload(), "interests": ["Совершенно новое направление"]}),
+        ("post", f"/events/{event_id}/close-registration", None),
+        ("post", f"/events/{closed_id}/open-registration", None),
+        ("post", f"/events/{event_id}/complete", None),
+        ("patch", f"/registrations/{sub_id}/decision", {"decision": "approved"}),
+        ("patch", f"/registrations/{sub_id}/decision", {"decision": "rejected"}),
+        ("put", f"/registrations/{app_id}/attendance", None),
+        ("post", "/partnership-requests", dict(visibility="direct", target_org_id=str(other), title="Новая программа", description="Описание")),
+        ("patch", f"/partnership-requests/{inbound_id}/decision", {"decision": "accepted"}),
+        ("post", f"/partnership-requests/{market_id}/responses", None),
+        ("patch", f"/partnership-responses/{response_id}/decision", {"decision": "accepted"}),
+    ]
+    for method, path, body in operations:
+        result = getattr(client, method)(API + path, headers=headers, **({"json": body} if body is not None else {}))
+        assert result.status_code == 200
+        assert result.json() == {"demo_mode": True}
+        assert snapshot() == before
 
     # Existing permission and input checks still run, even for previews.
     assert client.post(API + "/events", headers=headers, json={}).status_code == 422
@@ -134,34 +100,18 @@ def test_moderator_previews_never_create_accounts_publish_content_or_rotate_acce
             result = client.post(API + f"/moderation/{resource}/{identity}/decision",
                                  headers=headers, json={"decision": decision})
             assert result.status_code == 200, result.text
-            body = result.json()
-            assert body.get("status", body.get("moderation_status")) == "pending"
+            assert result.json() == {"demo_mode": True}
     for kind in ("school", "company", "academy"):
         result = client.post(API + "/moderation/organization-accounts", headers=headers, json={
             "organization": {"kind": kind, "name": "Временная организация", "city": "Минск"},
             "first_name": "Имя", "last_name": "Фамилия", "email": "preview@example.org",
         })
-        assert result.status_code == 201, result.text
-        body = result.json()
-        assert client.post(API + "/auth/organization-login", json={"token": body["token"]}).status_code == 401
-        with SessionLocal() as db:
-            assert db.get(User, UUID(body["account"]["user"]["id"])) is None
-            assert db.get(Organization, UUID(body["account"]["organization"]["id"])) is None
-    result = client.post(API + "/moderation/organization-accounts", headers=headers, json={
-        "organization_id": str(demo_id("org:school")),
-        "first_name": "Имя", "last_name": "Фамилия", "email": "preview.existing@example.org",
-    })
-    assert result.status_code == 201, result.text
-    assert client.post(API + "/auth/organization-login", json={"token": result.json()["token"]}).status_code == 401
-    assert client.post(API + "/moderation/organization-accounts", headers=headers, json={
-        "organization": {"kind": "school", "name": "Не создавать", "city": "Минск"},
-        "first_name": "Имя", "last_name": "Фамилия", "email": "admin@demo.by",
-    }).status_code == 409
+        assert result.status_code == 200
+        assert result.json() == {"demo_mode": True}
     for persona in ("school", "school2", "company", "academy", "presenter-school", "presenter-company"):
-        result = client.post(API + f"/moderation/organization-accounts/{demo_id('user:' + persona)}/token",
-                             headers=headers)
-        assert result.status_code == 200, result.text
-        assert client.post(API + "/auth/organization-login", json={"token": result.json()["token"]}).status_code == 401
+        result = client.post(API + f"/moderation/organization-accounts/{demo_id('user:' + persona)}/token", headers=headers)
+        assert result.status_code == 200
+        assert result.json() == {"demo_mode": True}
     assert snapshot() == before
 
 
@@ -180,7 +130,7 @@ def test_unknown_write_endpoint_is_denied_globally_and_identity_survives_role_ch
     headers = auth("company")
     with TestClient(app) as future:
         for persona in ("school", "school2", "company", "academy", "admin"):
-            assert future.post(API + "/future-write", headers=auth(persona)).status_code == 403
+            assert future.post(API + "/future-write", headers=auth(persona)).json() == {"demo_mode": True}
         assert not calls
         assert future.post(API + "/future-write", headers=auth("writer-company")).status_code == 200
     with SessionLocal.begin() as db:
@@ -188,5 +138,16 @@ def test_unknown_write_endpoint_is_denied_globally_and_identity_survives_role_ch
         user.email = "renamed@example.org"
         user.role = "parent"
         user.organization_id = None
-    assert client.post(API + "/parents/me/invitation", headers=headers).status_code == 403
+    assert client.post(API + "/parents/me/invitation", headers=headers).json() == {"demo_mode": True}
     assert client.get(API + "/auth/me", headers=headers).status_code == 200
+
+
+def test_mutation_metadata_and_openapi(client, auth):
+    student = auth("alina")
+    result = client.patch(API + "/students/me", headers=student, json={"city": "Минск", "grade": 10, "interests": ["Физика"]})
+    assert result.status_code == 200
+    assert result.json()["demo_mode"] is False
+    assert "demo_mode" not in client.get(API + "/students/me", headers=student).json()
+    assert "demo_mode" not in client.get(API + "/auth/me", headers=student).json()
+    schema = client.get("/openapi.json").json()
+    assert "anyOf" in schema["paths"][API + "/events"]["post"]["responses"]["200"]["content"]["application/json"]["schema"] or schema["paths"][API + "/events"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]["properties"]["demo_mode"]["const"] is True

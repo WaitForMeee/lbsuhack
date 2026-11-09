@@ -1,13 +1,13 @@
+from app.routes.shared.router import APIRouter
 from typing import Annotated, Literal
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import Query
 from sqlalchemy import select
 
-from app.core.demo import demo_preview, preview_only
+from app.core.demo import DemoRestricted, demo_preview, preview_only
 from app.core.errors import fail
-from app.models import Event, EventRegistration, Interest
-from app.models.shared.mixins import now
+from app.models import Event, EventRegistration
 from app.routes.shared.dependencies import DB, OptionalUser, Organizer, Student
 from app.schemas.events.requests import EventCreate
 from app.schemas.events.responses import EventOut
@@ -114,15 +114,10 @@ def recommendations(
 def create(data: EventCreate, db: DB, user: Organizer):
     values = data.model_dump(exclude={"interests"})
     if preview_only(user):
-        interests = []
-        for key, name in {normalize(n): " ".join(n.split()) for n in data.interests}.items():
-            if not key:
+        for name in data.interests:
+            if not normalize(name):
                 fail(422, "invalid_interest", "Пустое направление")
-            existing = db.scalar(select(Interest).where(Interest.normalized_name == key))
-            interests.append(existing or Interest(id=uuid4(), name=name, normalized_name=key, is_suggested=False))
-        e = Event(**values, id=uuid4(), created_at=now(), status="pending",
-                  organizer_id=user.organization_id, interests=interests)
-        return event_view(db, e, user)
+        raise DemoRestricted()
 
     e = Event(
         **values,

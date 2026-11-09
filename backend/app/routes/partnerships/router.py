@@ -1,7 +1,7 @@
+from app.routes.shared.router import APIRouter
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter
 
 from app.core.demo import demo_preview
 from app.routes.shared.dependencies import DB, Organizer

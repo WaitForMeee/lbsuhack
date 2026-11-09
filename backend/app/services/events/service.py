@@ -1,4 +1,4 @@
-from app.core.demo import preview_only
+from app.core.demo import DemoRestricted, preview_only
 from app.core.errors import fail
 from app.models import (
     Event,
@@ -28,7 +28,7 @@ def transition(db, identity, user, target):
     if target == "published" and e.registration_deadline < today():
         fail(409, "deadline_expired", "Дедлайн регистрации истёк")
     if preview_only(user):
-        return e
+        raise DemoRestricted()
     e.status = target
     db.commit()
     return e

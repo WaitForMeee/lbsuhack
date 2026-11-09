@@ -1,6 +1,6 @@
+from app.routes.shared.router import APIRouter
 from typing import Literal
 
-from fastapi import APIRouter
 from sqlalchemy import select
 
 from app.models import Interest, Organization

@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from app.routes.shared.router import APIRouter
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
